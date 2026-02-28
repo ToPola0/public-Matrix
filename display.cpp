@@ -53,6 +53,7 @@ static bool funClockUpsideDownEnabled = true;
 static bool funClockRotate180Enabled = true;
 static bool funClockFullRotateEnabled = true;
 static bool funClockMiddleSwapEnabled = true;
+static bool funClockPileupEnabled = true;
 static bool funClockNegativeEnabled = false;
 static CRGB displayFrameBackup[NUM_LEDS];
 static CRGB displayRenderFrame[NUM_LEDS];
@@ -76,7 +77,8 @@ enum FunClockEffect : uint8_t {
     FUN_CLOCK_EFFECT_ROTATE_180 = 8,
     FUN_CLOCK_EFFECT_FULL_ROTATE = 9,
     FUN_CLOCK_EFFECT_MIDDLE_SWAP = 10,
-    FUN_CLOCK_EFFECT_NEGATIVE = 11
+    FUN_CLOCK_EFFECT_PILEUP = 11,
+    FUN_CLOCK_EFFECT_NEGATIVE = 12
 };
 
 static FunClockEffect funClockLastEffect = FUN_CLOCK_EFFECT_NONE;
@@ -111,6 +113,7 @@ static void funClockStartUpsideDown(uint32_t now);
 static void funClockStartRotate180(uint32_t now);
 static void funClockStartFullRotate(uint32_t now);
 static void funClockStartMiddleSwap(uint32_t now);
+static void funClockStartPileup(uint32_t now);
 static void funClockStartNegative(uint32_t now);
 
 static bool displayFrameEquals(const CRGB* a, const CRGB* b) {
@@ -161,6 +164,7 @@ static uint8_t displayAdaptiveBlendWeight() {
         case FUN_CLOCK_EFFECT_ROTATE_180: return 36;
         case FUN_CLOCK_EFFECT_FULL_ROTATE: return 34;
         case FUN_CLOCK_EFFECT_MIDDLE_SWAP: return 40;
+        case FUN_CLOCK_EFFECT_PILEUP: return 32;
         case FUN_CLOCK_EFFECT_NEGATIVE: return 0;
         case FUN_CLOCK_EFFECT_NONE:
         default:
@@ -185,7 +189,7 @@ static void funClockInitIfNeeded() {
 }
 
 static bool funClockStartAnyEnabledEffect(uint32_t now) {
-    FunClockEffect enabled[11];
+    FunClockEffect enabled[12];
     uint8_t count = 0;
 
     if (funClockMoveEnabled) enabled[count++] = FUN_CLOCK_EFFECT_MOVE;
@@ -198,6 +202,7 @@ static bool funClockStartAnyEnabledEffect(uint32_t now) {
     if (funClockRotate180Enabled) enabled[count++] = FUN_CLOCK_EFFECT_ROTATE_180;
     if (funClockFullRotateEnabled) enabled[count++] = FUN_CLOCK_EFFECT_FULL_ROTATE;
     if (funClockMiddleSwapEnabled) enabled[count++] = FUN_CLOCK_EFFECT_MIDDLE_SWAP;
+    if (funClockPileupEnabled) enabled[count++] = FUN_CLOCK_EFFECT_PILEUP;
     if (funClockNegativeEnabled) enabled[count++] = FUN_CLOCK_EFFECT_NEGATIVE;
 
     if (count == 0) return false;
@@ -207,7 +212,7 @@ static bool funClockStartAnyEnabledEffect(uint32_t now) {
         blocked = funClockLastEffect;
     }
 
-    FunClockEffect selectable[11];
+    FunClockEffect selectable[12];
     uint8_t selectableCount = 0;
     for (uint8_t i = 0; i < count; i++) {
         if (enabled[i] != blocked) {
@@ -244,6 +249,8 @@ static bool funClockStartAnyEnabledEffect(uint32_t now) {
         funClockStartFullRotate(now);
     } else if (selected == FUN_CLOCK_EFFECT_MIDDLE_SWAP) {
         funClockStartMiddleSwap(now);
+    } else if (selected == FUN_CLOCK_EFFECT_PILEUP) {
+        funClockStartPileup(now);
     } else if (selected == FUN_CLOCK_EFFECT_NEGATIVE) {
         funClockStartNegative(now);
     } else {
@@ -353,6 +360,15 @@ static void funClockStartMiddleSwap(uint32_t now) {
     funClockState.effectDurationMs = 2650U;
 }
 
+static void funClockStartPileup(uint32_t now) {
+    for (uint8_t i = 0; i < 8; i++) {
+        digitOffset[i] = 0;
+    }
+    funClockState.activeEffect = FUN_CLOCK_EFFECT_PILEUP;
+    funClockState.effectStartMs = now;
+    funClockState.effectDurationMs = (uint32_t)random(3400, 4401);
+}
+
 static void funClockStartNegative(uint32_t now) {
     for (uint8_t i = 0; i < 8; i++) {
         digitOffset[i] = 0;
@@ -421,6 +437,7 @@ static void funClockUpdateState() {
         funClockState.activeEffect == FUN_CLOCK_EFFECT_ROTATE_180 ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_FULL_ROTATE ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_MIDDLE_SWAP ||
+        funClockState.activeEffect == FUN_CLOCK_EFFECT_PILEUP ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_NEGATIVE) {
         uint32_t elapsed = now - funClockState.effectStartMs;
         if (elapsed >= funClockState.effectDurationMs) {
@@ -488,6 +505,11 @@ void display_triggerFunClockMiddleSwap() {
     funClockStartMiddleSwap(millis());
 }
 
+void display_triggerFunClockPileup() {
+    funClockInitIfNeeded();
+    funClockStartPileup(millis());
+}
+
 void display_setFunClockIntervalSeconds(uint16_t seconds) {
     funClockIntervalSeconds = constrain(seconds, 10, 3600);
     uint32_t now = millis();
@@ -506,7 +528,7 @@ uint32_t display_getFunClockCompletedEffectsCount() {
     return funClockCompletedEffectsCount;
 }
 
-void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool matrixSidewaysEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool negativeEnabled) {
+void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool matrixSidewaysEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool pileupEnabled, bool negativeEnabled) {
     funClockMoveEnabled = moveEnabled;
     funClockMirrorEnabled = mirrorEnabled;
     funClockRainbowEnabled = rainbowEnabled;
@@ -517,6 +539,7 @@ void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, boo
     funClockRotate180Enabled = rotate180Enabled;
     funClockFullRotateEnabled = fullRotateEnabled;
     funClockMiddleSwapEnabled = middleSwapEnabled;
+    funClockPileupEnabled = pileupEnabled;
     funClockNegativeEnabled = negativeEnabled;
     funClockLastEffect = FUN_CLOCK_EFFECT_NONE;
 
@@ -550,6 +573,9 @@ void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, boo
         funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
     }
     if (!funClockMiddleSwapEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_MIDDLE_SWAP) {
+        funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
+    }
+    if (!funClockPileupEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_PILEUP) {
         funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
     }
     if (!funClockNegativeEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_NEGATIVE) {
@@ -1404,6 +1430,43 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
             }
         }
 
+        bool pileupActive = (funClockState.activeEffect == FUN_CLOCK_EFFECT_PILEUP);
+        int8_t pileupYOffset[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+        uint8_t pileupMode[8] = {0, 0, 0, 0, 0, 0, 0, 0}; // 0=normal,1=mirror,2=upside,3=rot180
+
+        if (pileupActive) {
+            uint32_t elapsed = millis() - funClockState.effectStartMs;
+            uint32_t duration = funClockState.effectDurationMs;
+            if (duration == 0U) duration = 1U;
+
+            int16_t* slots[8] = {&x0, &x1, &x2, &x3, &x4, &x5, &x6, &x7};
+            int16_t baseX[8] = {x0, x1, x2, x3, x4, x5, x6, x7};
+            const int16_t pileCenterX = x0;
+
+            for (uint8_t i = 0; i < 8; i++) {
+                uint32_t startDelay = (uint32_t)i * 90U;
+                if (elapsed < startDelay) continue;
+
+                uint32_t localElapsed = elapsed - startDelay;
+                uint32_t localDuration = (duration > startDelay) ? (duration - startDelay) : 1U;
+                float p = (float)localElapsed / (float)localDuration;
+                if (p > 1.0f) p = 1.0f;
+                float ease = 1.0f - (1.0f - p) * (1.0f - p);
+
+                int16_t crashTargetX = (int16_t)(pileCenterX + ((int16_t)(i % 4) - 1));
+                *slots[i] = (int16_t)roundf((float)baseX[i] + ((float)crashTargetX - (float)baseX[i]) * ease);
+
+                int8_t down = (int8_t)min(3, (int)(i / 2));
+                pileupYOffset[i] = (int8_t)roundf((float)down * ease);
+                if (p > 0.30f) {
+                    pileupMode[i] = (uint8_t)((i + (p > 0.72f ? 1 : 0)) % 4);
+                }
+                if (p > 0.78f && ((i + (uint8_t)(elapsed / 90U)) % 2U) == 0U) {
+                    pileupYOffset[i] = (int8_t)(pileupYOffset[i] + 1);
+                }
+            }
+        }
+
         CRGB symbolColor[8] = {
             clock_color, clock_color, clock_color, clock_color,
             clock_color, clock_color, clock_color, clock_color
@@ -1433,6 +1496,38 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
             if (!funClockRainbowSmoothedInitialized) {
                 funClockRainbowSmoothedInitialized = true;
             }
+        }
+
+        if (pileupActive) {
+            auto drawDigitWithMode = [&](uint8_t digit, int16_t dx, int16_t dy, CRGB c, uint8_t mode) {
+                if (mode == 1) {
+                    drawClockDigit4x7Mirrored(digit, dx, dy, c);
+                } else if (mode == 2) {
+                    drawClockDigit4x7UpsideDown(digit, dx, dy, c);
+                } else if (mode == 3) {
+                    drawClockDigit4x7Rotate180(digit, dx, dy, c);
+                } else {
+                    drawClockDigit4x7(digit, dx, dy, c);
+                }
+            };
+
+            drawDigitWithMode(h1, x0, y + 1 + digitOffset[0] + pileupYOffset[0], symbolColor[0], pileupMode[0]);
+            drawDigitWithMode(h2, x1, y + digitOffset[1] + pileupYOffset[1], symbolColor[1], pileupMode[1]);
+            if (pileupMode[2] == 2 || pileupMode[2] == 3) {
+                drawClockColonClassicUpsideDown(x2, y + digitOffset[2] + pileupYOffset[2], colon, symbolColor[2]);
+            } else {
+                drawClockColonClassic(x2, y + digitOffset[2] + pileupYOffset[2], colon, symbolColor[2]);
+            }
+            drawDigitWithMode(m1, x3, y + 1 + digitOffset[3] + pileupYOffset[3], symbolColor[3], pileupMode[3]);
+            drawDigitWithMode(m2, x4, y + digitOffset[4] + pileupYOffset[4], symbolColor[4], pileupMode[4]);
+            if (pileupMode[5] == 2 || pileupMode[5] == 3) {
+                drawClockColonClassicUpsideDown(x5, y + digitOffset[5] + pileupYOffset[5], colon, symbolColor[5]);
+            } else {
+                drawClockColonClassic(x5, y + digitOffset[5] + pileupYOffset[5], colon, symbolColor[5]);
+            }
+            drawDigitWithMode(s1, x6, y + 1 + digitOffset[6] + pileupYOffset[6], symbolColor[6], pileupMode[6]);
+            drawDigitWithMode(s2, x7, y + digitOffset[7] + pileupYOffset[7], symbolColor[7], pileupMode[7]);
+            return;
         }
 
         if (drawHours) {

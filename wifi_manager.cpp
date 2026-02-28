@@ -64,10 +64,11 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
     bool fxRotate180 = preferences.getUChar("fxRotate180", 1) == 1;
     bool fxFullRotate = preferences.getUChar("fxFullRotate", 1) == 1;
     bool fxMiddleSwap = preferences.getUChar("fxMiddleSwap", 1) == 1;
+    bool fxPileup = preferences.getUChar("fxPileup", 1) == 1;
     bool displayLampMode = preferences.getUChar("displayLampMode", 0) == 1;
     bool displayNegative = preferences.getUChar("displayNegative", 0) == 1;
     bool fxQuotes = preferences.getUChar("quotes_enabled", 1) == 1;
-    display_setFunClockEffectsEnabled(fxMove, fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, displayNegative);
+    display_setFunClockEffectsEnabled(fxMove, fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, fxPileup, displayNegative);
     display_setNegative(false);
     display_mode = displayLampMode ? DISPLAY_MODE_LAMP : DISPLAY_MODE_CLOCK;
     mainConfig.schedule.random_quotes_enabled = fxQuotes;
@@ -98,7 +99,7 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
         message_color = parsedLampColor;
     }
 
-    Serial.printf("[WiFi] Startup apply: brightness=%d color=%s lampBrightness=%d lampColor=%s interval=%ds fx=%d%d%d%d%d%d%d%d%d%d lamp=%d neg=%d quotes=%d\n",
+    Serial.printf("[WiFi] Startup apply: brightness=%d color=%s lampBrightness=%d lampColor=%s interval=%ds fx=%d%d%d%d%d%d%d%d%d%d%d lamp=%d neg=%d quotes=%d\n",
         savedBrightness,
         savedColor.c_str(),
         lampBrightness,
@@ -114,6 +115,7 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
         fxRotate180 ? 1 : 0,
         fxFullRotate ? 1 : 0,
         fxMiddleSwap ? 1 : 0,
+        fxPileup ? 1 : 0,
         displayLampMode ? 1 : 0,
         displayNegative ? 1 : 0,
         fxQuotes ? 1 : 0);
@@ -142,7 +144,27 @@ static void applyStoredMqttSettings(Preferences& preferences) {
         mqttPrefix.c_str());
 }
 
-static void drawOtaProgressOnMatrix(size_t writtenBytes, size_t totalBytes, bool errorState = false) {
+static void drawOtaProgressOnMatrix(size_t writtenBytes, size_t totalBytes, bool errorState = false, bool forceRedraw = false) {
+    static int16_t lastPercentShown = -1;
+    static bool lastErrorState = false;
+
+    int16_t percent = -1;
+    if (!errorState) {
+        if (totalBytes > 0U) {
+            uint32_t p = (uint32_t)((writtenBytes * 100UL) / totalBytes);
+            if (p > 100UL) p = 100UL;
+            percent = (int16_t)p;
+        } else {
+            percent = 0;
+        }
+    }
+
+    if (!forceRedraw && errorState == lastErrorState && percent == lastPercentShown) {
+        return;
+    }
+    lastErrorState = errorState;
+    lastPercentShown = percent;
+
     display_clear();
     CRGB textColor = errorState ? CRGB::Red : CRGB::Green;
     String progressText;
@@ -150,11 +172,6 @@ static void drawOtaProgressOnMatrix(size_t writtenBytes, size_t totalBytes, bool
     if (errorState) {
         progressText = "ERR";
     } else {
-        uint32_t percent = 0;
-        if (totalBytes > 0) {
-            percent = (uint32_t)((writtenBytes * 100UL) / totalBytes);
-            if (percent > 100UL) percent = 100UL;
-        }
         progressText = String(percent) + "%";
     }
 
@@ -163,7 +180,7 @@ static void drawOtaProgressOnMatrix(size_t writtenBytes, size_t totalBytes, bool
     int16_t textX = (LED_WIDTH > textWidth) ? ((LED_WIDTH - textWidth) / 2) : 0;
     int16_t textY = (LED_HEIGHT > 7) ? ((LED_HEIGHT - 7) / 2) : 0;
     display_drawText(progressText.c_str(), textX, textColor);
-    display_show();
+    updateLEDs();
 }
 
 
@@ -385,6 +402,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <label><input type='checkbox' name='fxRotate180' id='fxRotate180' checked style='width:auto' onchange='saveAnimationSelection()'> Obrót 180°</label>
 <label><input type='checkbox' name='fxFullRotate' id='fxFullRotate' checked style='width:auto' onchange='saveAnimationSelection()'> Pełny obrót w prawo</label>
 <label><input type='checkbox' name='fxMiddleSwap' id='fxMiddleSwap' checked style='width:auto' onchange='saveAnimationSelection()'> Wszystkie cyfry: naprzemienny przejazd</label>
+<label><input type='checkbox' name='fxPileup' id='fxPileup' checked style='width:auto' onchange='saveAnimationSelection()'> Karambol: cyfry i dwukropki na lewo</label>
 <label><input type='checkbox' name='displayNegative' id='displayNegative' style='width:auto' onchange='saveNegativeToggle()'> Negatyw wyświetlania</label>
 <label><input type='checkbox' name='fxQuotes' id='fxQuotes' checked style='width:auto' onchange='saveQuotesToggle()'> Cytaty</label>
 <label>Kolor</label>
@@ -400,6 +418,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button type='button' onclick='triggerClockRotate180Test()' style='background:#5d4037;margin-top:4px;'>Test obrotu 180°</button>
 <button type='button' onclick='triggerClockFullRotateTest()' style='background:#00695c;margin-top:4px;'>Test pełnego obrotu</button>
 <button type='button' onclick='triggerClockMiddleSwapTest()' style='background:#3949ab;margin-top:4px;'>Test przejazdu wszystkich cyfr</button>
+<button type='button' onclick='triggerClockPileupTest()' style='background:#4e342e;margin-top:4px;'>Test karambolu cyfr</button>
 <button type='button' onclick='toggleNegativeNow()' style='background:#455a64;margin-top:4px;'>Przełącz negatyw</button>
 <div id='anim-test-status' class='i' style='margin-top:4px;'>Gotowy do testów</div>
 </form>
@@ -646,6 +665,15 @@ setAnimTestStatus('❌ '+(d.error||'Błąd efektu przejazdu wszystkich cyfr'),fa
 }
 }).catch(e=>{console.log('Error:',e);setAnimTestStatus('❌ Błąd połączenia',false)});
 }
+function triggerClockPileupTest(){
+fetch('/trigger-clock-pileup',{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+setAnimTestStatus('✓ Efekt karambolu uruchomiony',true);
+}else{
+setAnimTestStatus('❌ '+(d.error||'Błąd efektu karambolu'),false);
+}
+}).catch(e=>{console.log('Error:',e);setAnimTestStatus('❌ Błąd połączenia',false)});
+}
 function toggleNegativeNow(){
 const neg=document.getElementById('displayNegative');
 if(!neg)return;
@@ -773,20 +801,40 @@ document.getElementById('apPassword-input').value=cfg.apPassword||'';
 // Jeśli DHCP włączony - pokazuj aktualny IP, jeśli wyłączony - static IP
 const useDhcp=!net.useStaticIP;
 document.getElementById('dhcp-input').checked=useDhcp;
-document.getElementById('staticIP-input').value=useDhcp?net.currentIP:net.staticIP||'';
-document.getElementById('gateway-input').value=useDhcp?net.currentGateway:net.staticGateway||'';
-document.getElementById('subnet-input').value=useDhcp?net.currentSubnet:net.staticSubnet||'';
+const normNetVal=v=>(v===undefined||v===null||v==='--')?'':String(v);
+const currentIP=normNetVal(net.currentIP);
+const currentGateway=normNetVal(net.currentGateway);
+const currentSubnet=normNetVal(net.currentSubnet);
+const savedStaticIP=normNetVal(net.staticIP);
+const savedStaticGateway=normNetVal(net.staticGateway);
+const savedStaticSubnet=normNetVal(net.staticSubnet);
+document.getElementById('staticIP-input').value=useDhcp?(currentIP||savedStaticIP):(savedStaticIP||currentIP);
+document.getElementById('gateway-input').value=useDhcp?(currentGateway||savedStaticGateway):(savedStaticGateway||currentGateway);
+document.getElementById('subnet-input').value=useDhcp?(currentSubnet||savedStaticSubnet):(savedStaticSubnet||currentSubnet);
 const ipInput=document.getElementById('staticIP-input');
 const gwInput=document.getElementById('gateway-input');
 const snInput=document.getElementById('subnet-input');
+let prevIsDhcp=useDhcp;
 const updateInputs=()=>{
 const isDhcp=document.getElementById('dhcp-input').checked;
 ipInput.disabled=isDhcp;
 gwInput.disabled=isDhcp;
 snInput.disabled=isDhcp;
-ipInput.value=isDhcp?net.currentIP:(ipInput.value||net.staticIP||'');
-gwInput.value=isDhcp?net.currentGateway:(gwInput.value||net.staticGateway||'');
-snInput.value=isDhcp?net.currentSubnet:(snInput.value||net.staticSubnet||'');
+if(isDhcp){
+ipInput.value=currentIP||savedStaticIP;
+gwInput.value=currentGateway||savedStaticGateway;
+snInput.value=currentSubnet||savedStaticSubnet;
+}else{
+if(prevIsDhcp){
+if(!ipInput.value)ipInput.value=currentIP||savedStaticIP;
+if(!gwInput.value)gwInput.value=currentGateway||savedStaticGateway;
+if(!snInput.value)snInput.value=currentSubnet||savedStaticSubnet;
+}
+if(!ipInput.value)ipInput.value=savedStaticIP;
+if(!gwInput.value)gwInput.value=savedStaticGateway||currentGateway;
+if(!snInput.value)snInput.value=savedStaticSubnet||currentSubnet;
+}
+prevIsDhcp=isDhcp;
 };
 updateInputs();
 document.getElementById('dhcp-input').addEventListener('change',updateInputs);
@@ -820,6 +868,7 @@ document.getElementById('fxUpsideDown').checked=(cfg.fxUpsideDown!==false);
 document.getElementById('fxRotate180').checked=(cfg.fxRotate180!==false);
 document.getElementById('fxFullRotate').checked=(cfg.fxFullRotate!==false);
 document.getElementById('fxMiddleSwap').checked=(cfg.fxMiddleSwap!==false);
+document.getElementById('fxPileup').checked=(cfg.fxPileup!==false);
 document.getElementById('displayNegative').checked=(cfg.displayNegative===true);
 document.getElementById('fxQuotes').checked=(cfg.fxQuotes!==false);
 const cp=document.getElementById('acp');
@@ -914,7 +963,7 @@ postJsonForm('/save-animations',fd)
 function saveAnimationVisuals(){debounceSave('animVisuals',saveAnimations,320);}
 function saveAnimationSelection(){
 const fd=new FormData();
-['fxMove','fxMirror','fxRainbow','fxHoursSlide','fxMatrixFont','fxMatrixSideways','fxUpsideDown','fxRotate180','fxFullRotate','fxMiddleSwap'].forEach(id=>{
+['fxMove','fxMirror','fxRainbow','fxHoursSlide','fxMatrixFont','fxMatrixSideways','fxUpsideDown','fxRotate180','fxFullRotate','fxMiddleSwap','fxPileup'].forEach(id=>{
 const el=document.getElementById(id);
 fd.append(id,(el&&el.checked)?'1':'0');
 });
@@ -1303,6 +1352,7 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/trigger-clock-rotate-180", HTTP_POST, authWrap(&WifiManager::handleTriggerClockRotate180));
     server->on("/trigger-clock-full-rotate", HTTP_POST, authWrap(&WifiManager::handleTriggerClockFullRotate));
     server->on("/trigger-clock-middle-swap", HTTP_POST, authWrap(&WifiManager::handleTriggerClockMiddleSwap));
+    server->on("/trigger-clock-pileup", HTTP_POST, authWrap(&WifiManager::handleTriggerClockPileup));
     server->on("/delete-quote", HTTP_POST, authWrap(&WifiManager::handleDeleteQuote));
     server->on("/api/quotes-export", authWrap(&WifiManager::handleExportQuotes));
     server->on("/import-quotes", HTTP_POST, authWrap(&WifiManager::handleImportQuotes));
@@ -1358,6 +1408,37 @@ void WifiManager::handleSave() {
         Serial.println(apPassword);
     }
     
+    auto sendRestartPage = [this](const char* title) {
+        String html = "<!DOCTYPE html><html lang='pl'><head><meta charset='UTF-8'>";
+        html += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
+        html += "<meta http-equiv='refresh' content='8;url=/'>";
+        html += "<title>LED Matrix by ToPola</title>";
+        html += "<style>body{margin:0;background:#0b0f14;color:#e8edf4;font-family:Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px}.card{max-width:420px;width:100%;background:#111923;border:1px solid #2c3a4a;border-radius:12px;padding:18px}.ok{color:#7ee787;font-weight:700;font-size:1.05em;margin-bottom:8px}.sub{color:#b8c7d9;font-size:.95em}</style></head><body>";
+        html += "<div class='card'><div class='ok'>✓ ";
+        html += title;
+        html += "</div><div class='sub'>Urządzenie uruchamia się ponownie... Za chwilę wróć do panelu.</div></div></body></html>";
+        server->send(200, "text/html; charset=utf-8", html);
+    };
+
+    String requestedStaticIP = server->arg("staticIP");
+    String requestedStaticGateway = server->arg("staticGateway");
+    String requestedStaticSubnet = server->arg("staticSubnet");
+
+    if (useStatic == "1") {
+        if (requestedStaticIP.length() == 0 || requestedStaticIP == "--") {
+            IPAddress ip = WiFi.localIP();
+            if (ip != INADDR_NONE && ip[0] != 0) requestedStaticIP = ip.toString();
+        }
+        if (requestedStaticGateway.length() == 0 || requestedStaticGateway == "--") {
+            IPAddress gw = WiFi.gatewayIP();
+            if (gw != INADDR_NONE && gw[0] != 0) requestedStaticGateway = gw.toString();
+        }
+        if (requestedStaticSubnet.length() == 0 || requestedStaticSubnet == "--") {
+            IPAddress sn = WiFi.subnetMask();
+            if (sn != INADDR_NONE && sn[0] != 0) requestedStaticSubnet = sn.toString();
+        }
+    }
+
     // Jeśli nie ma połączenia STA - zapisz tylko WiFi i restart
     if (WiFi.status() != WL_CONNECTED) {
         WifiConfig newConfig;
@@ -1367,22 +1448,22 @@ void WifiManager::handleSave() {
         
         // Save IP settings
         preferences.putString("useStaticIP", useStatic);
-        preferences.putString("staticIP", server->arg("staticIP"));
-        preferences.putString("staticGateway", server->arg("staticGateway"));
-        preferences.putString("staticSubnet", server->arg("staticSubnet"));
+        preferences.putString("staticIP", requestedStaticIP);
+        preferences.putString("staticGateway", requestedStaticGateway);
+        preferences.putString("staticSubnet", requestedStaticSubnet);
         
         Serial.print("[WiFi] DHCP: ");
         Serial.print(dhcpEnabled ? "on" : "off");
         Serial.print(" AP haslo: ");
         Serial.print(apPassword);
         Serial.print(" Static IP: ");
-        Serial.print(server->arg("staticIP").c_str());
+        Serial.print(requestedStaticIP.c_str());
         Serial.print(" Gateway: ");
-        Serial.print(server->arg("staticGateway").c_str());
+        Serial.print(requestedStaticGateway.c_str());
         Serial.print(" Subnet: ");
-        Serial.println(server->arg("staticSubnet").c_str());
+        Serial.println(requestedStaticSubnet.c_str());
         
-        server->send(200, "text/html", "<html><body><h1>WiFi zapisano. Restart...</h1></body></html>");
+        sendRestartPage("WiFi zapisano");
         delay(500);
         restartESP();
     } else {
@@ -1394,21 +1475,21 @@ void WifiManager::handleSave() {
         
         // Save IP settings
         preferences.putString("useStaticIP", useStatic);
-        preferences.putString("staticIP", server->arg("staticIP"));
-        preferences.putString("staticGateway", server->arg("staticGateway"));
-        preferences.putString("staticSubnet", server->arg("staticSubnet"));
+        preferences.putString("staticIP", requestedStaticIP);
+        preferences.putString("staticGateway", requestedStaticGateway);
+        preferences.putString("staticSubnet", requestedStaticSubnet);
 
         Serial.print("[WiFi] DHCP: ");
         Serial.println(dhcpEnabled ? "on" : "off");
         
         Serial.print("[WiFi] Static IP: ");
-        Serial.print(server->arg("staticIP").c_str());
+        Serial.print(requestedStaticIP.c_str());
         Serial.print(" Gateway: ");
-        Serial.print(server->arg("staticGateway").c_str());
+        Serial.print(requestedStaticGateway.c_str());
         Serial.print(" Subnet: ");
-        Serial.println(server->arg("staticSubnet").c_str());
+        Serial.println(requestedStaticSubnet.c_str());
         
-        server->send(200, "text/html", "<html><body><h1>Zapisano. Restart...</h1></body></html>");
+        sendRestartPage("Ustawienia zapisane");
         delay(500);
         restartESP();
     }
@@ -1576,6 +1657,7 @@ void WifiManager::handleApiAnimationsConfig() {
     bool fxRotate180 = preferences.getUChar("fxRotate180", 1) == 1;
     bool fxFullRotate = preferences.getUChar("fxFullRotate", 1) == 1;
     bool fxMiddleSwap = preferences.getUChar("fxMiddleSwap", 1) == 1;
+    bool fxPileup = preferences.getUChar("fxPileup", 1) == 1;
     bool displayNegative = preferences.getUChar("displayNegative", 0) == 1;
     bool fxQuotes = preferences.getUChar("quotes_enabled", 1) == 1;
     String json = "{";
@@ -1592,6 +1674,7 @@ void WifiManager::handleApiAnimationsConfig() {
     json += "\"fxRotate180\":" + String(fxRotate180 ? "true" : "false") + ",";
     json += "\"fxFullRotate\":" + String(fxFullRotate ? "true" : "false") + ",";
     json += "\"fxMiddleSwap\":" + String(fxMiddleSwap ? "true" : "false") + ",";
+    json += "\"fxPileup\":" + String(fxPileup ? "true" : "false") + ",";
     json += "\"displayNegative\":" + String(displayNegative ? "true" : "false") + ",";
     json += "\"fxQuotes\":" + String(fxQuotes ? "true" : "false");
     json += "}";
@@ -1872,6 +1955,13 @@ void WifiManager::handleTriggerClockMiddleSwap() {
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
 }
 
+void WifiManager::handleTriggerClockPileup() {
+    display_mode = DISPLAY_MODE_CLOCK;
+    display_triggerFunClockPileup();
+    Serial.println("[WiFi] Trigger clock pileup test");
+    server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
+}
+
 void WifiManager::handleDeleteQuote() {
     if (server->hasArg("index")) {
         int index = server->arg("index").toInt();
@@ -1956,6 +2046,7 @@ void WifiManager::handleSaveAnimations() {
         server->hasArg("fxRotate180") ||
         server->hasArg("fxFullRotate") ||
         server->hasArg("fxMiddleSwap") ||
+        server->hasArg("fxPileup") ||
         server->hasArg("displayNegative") ||
         server->hasArg("fxQuotes");
     bool fullAnimFormUpdate = server->hasArg("fullAnimForm") || hasBrightnessArg || hasColorArg || hasAnyAnimToggleArg;
@@ -1976,6 +2067,7 @@ void WifiManager::handleSaveAnimations() {
     bool fxRotate180 = fullAnimFormUpdate ? boolArgValue("fxRotate180", preferences.getUChar("fxRotate180", 1) == 1) : (preferences.getUChar("fxRotate180", 1) == 1);
     bool fxFullRotate = fullAnimFormUpdate ? boolArgValue("fxFullRotate", preferences.getUChar("fxFullRotate", 1) == 1) : (preferences.getUChar("fxFullRotate", 1) == 1);
     bool fxMiddleSwap = fullAnimFormUpdate ? boolArgValue("fxMiddleSwap", preferences.getUChar("fxMiddleSwap", 1) == 1) : (preferences.getUChar("fxMiddleSwap", 1) == 1);
+    bool fxPileup = fullAnimFormUpdate ? boolArgValue("fxPileup", preferences.getUChar("fxPileup", 1) == 1) : (preferences.getUChar("fxPileup", 1) == 1);
     bool displayNegative = fullAnimFormUpdate ? boolArgValue("displayNegative", preferences.getUChar("displayNegative", 0) == 1) : (preferences.getUChar("displayNegative", 0) == 1);
     bool fxQuotes = fullAnimFormUpdate ? boolArgValue("fxQuotes", preferences.getUChar("quotes_enabled", 1) == 1) : (preferences.getUChar("quotes_enabled", 1) == 1);
     bool lampEnabled = preferences.getUChar("displayLampMode", 0) == 1;
@@ -2001,6 +2093,7 @@ void WifiManager::handleSaveAnimations() {
         preferences.putUChar("fxRotate180", fxRotate180 ? 1 : 0);
         preferences.putUChar("fxFullRotate", fxFullRotate ? 1 : 0);
         preferences.putUChar("fxMiddleSwap", fxMiddleSwap ? 1 : 0);
+        preferences.putUChar("fxPileup", fxPileup ? 1 : 0);
         preferences.putUChar("displayNegative", displayNegative ? 1 : 0);
         preferences.putUChar("quotes_enabled", fxQuotes ? 1 : 0);
     }
@@ -2009,7 +2102,7 @@ void WifiManager::handleSaveAnimations() {
         display_setBrightness((uint8_t)brightness);
     }
     display_setFunClockIntervalSeconds((uint16_t)clockAnimInterval);
-    display_setFunClockEffectsEnabled(fxMove, fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, displayNegative);
+    display_setFunClockEffectsEnabled(fxMove, fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, fxPileup, displayNegative);
     display_setNegative(false);
     mainConfig.schedule.random_quotes_enabled = fxQuotes;
 
@@ -2032,7 +2125,7 @@ void WifiManager::handleSaveAnimations() {
         modeApplied = true;
     }
 
-    Serial.printf("[WiFi] Brightness applied: %d, Color: %s, ClockAnimInterval: %ds, fx=%d%d%d%d%d%d%d%d%d%d, lamp=%d, neg=%d, quotes=%d\n",
+    Serial.printf("[WiFi] Brightness applied: %d, Color: %s, ClockAnimInterval: %ds, fx=%d%d%d%d%d%d%d%d%d%d%d, lamp=%d, neg=%d, quotes=%d\n",
         brightness,
         animColor.c_str(),
         clockAnimInterval,
@@ -2046,6 +2139,7 @@ void WifiManager::handleSaveAnimations() {
         fxRotate180 ? 1 : 0,
         fxFullRotate ? 1 : 0,
         fxMiddleSwap ? 1 : 0,
+        fxPileup ? 1 : 0,
         lampEnabled ? 1 : 0,
         displayNegative ? 1 : 0,
         fxQuotes ? 1 : 0);
@@ -2304,11 +2398,14 @@ void WifiManager::handleOtaUpload() {
         Serial.printf("[OTA] 📥 Rozpoczęto: %s\n", filename.c_str());
         otaUpdating = true;
         externalOtaActive = true;
+        message_active = false;
+        display_suppressFunClockEffects(180000);
+        display_setNegative(false);
         WiFi.setSleep(false);
         FastLED.setDither(0);
         otaProgress = 0;
         otaTotal = upload.totalSize;
-        drawOtaProgressOnMatrix(0, otaTotal, false);
+        drawOtaProgressOnMatrix(0, otaTotal, false, true);
         
         // Begin OTA update with max available sketch space
         size_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
@@ -2317,7 +2414,7 @@ void WifiManager::handleOtaUpload() {
             otaUpdating = false;
             externalOtaActive = false;
             FastLED.setDither(1);
-            drawOtaProgressOnMatrix(0, 1, true);
+            drawOtaProgressOnMatrix(0, 1, true, true);
             server->send(500, "application/json", "{\"success\":false,\"error\":\"Update begin failed\"}");
             return;
         }
@@ -2332,7 +2429,7 @@ void WifiManager::handleOtaUpload() {
             otaUpdating = false;
             externalOtaActive = false;
             FastLED.setDither(1);
-            drawOtaProgressOnMatrix(0, 1, true);
+            drawOtaProgressOnMatrix(0, 1, true, true);
             server->send(500, "application/json", "{\"success\":false,\"error\":\"Write failed\"}");
             return;
         }
@@ -2361,7 +2458,7 @@ void WifiManager::handleOtaUpload() {
             otaUpdating = false;
             externalOtaActive = false;
             FastLED.setDither(1);
-            drawOtaProgressOnMatrix(otaTotal > 0 ? otaTotal : otaProgress, otaTotal > 0 ? otaTotal : otaProgress, false);
+            drawOtaProgressOnMatrix(otaTotal > 0 ? otaTotal : otaProgress, otaTotal > 0 ? otaTotal : otaProgress, false, true);
             
             // Send success response
             server->send(200, "application/json", "{\"success\":true,\"written\":" + String(otaProgress) + "}");
@@ -2374,7 +2471,7 @@ void WifiManager::handleOtaUpload() {
             otaUpdating = false;
             externalOtaActive = false;
             FastLED.setDither(1);
-            drawOtaProgressOnMatrix(0, 1, true);
+            drawOtaProgressOnMatrix(0, 1, true, true);
             server->send(500, "application/json", "{\"success\":false,\"error\":\"Update failed\"}");
         }
     }
@@ -2384,7 +2481,7 @@ void WifiManager::handleOtaUpload() {
         otaUpdating = false;
         externalOtaActive = false;
         FastLED.setDither(1);
-        drawOtaProgressOnMatrix(0, 1, true);
+        drawOtaProgressOnMatrix(0, 1, true, true);
         server->send(500, "application/json", "{\"success\":false,\"error\":\"Upload aborted\"}");
     }
 }

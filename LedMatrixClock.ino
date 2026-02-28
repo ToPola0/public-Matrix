@@ -31,7 +31,27 @@ WifiManager wifiManager;
 static bool otaInitialized = false;
 static bool otaUploadActive = false;
 
-static void drawArduinoOtaProgress(unsigned int progress, unsigned int total, bool errorState = false) {
+static void drawArduinoOtaProgress(unsigned int progress, unsigned int total, bool errorState = false, bool forceRedraw = false) {
+    static int16_t lastPercentShown = -1;
+    static bool lastErrorState = false;
+
+    int16_t percent = -1;
+    if (!errorState) {
+        if (total > 0U) {
+            uint32_t p = ((uint32_t)progress * 100UL) / (uint32_t)total;
+            if (p > 100UL) p = 100UL;
+            percent = (int16_t)p;
+        } else {
+            percent = 0;
+        }
+    }
+
+    if (!forceRedraw && errorState == lastErrorState && percent == lastPercentShown) {
+        return;
+    }
+    lastErrorState = errorState;
+    lastPercentShown = percent;
+
     display_clear();
 
     CRGB textColor = errorState ? CRGB::Red : CRGB::Green;
@@ -39,11 +59,6 @@ static void drawArduinoOtaProgress(unsigned int progress, unsigned int total, bo
     if (errorState) {
         text = "ERR";
     } else {
-        uint32_t percent = 0;
-        if (total > 0U) {
-            percent = ((uint32_t)progress * 100UL) / (uint32_t)total;
-            if (percent > 100UL) percent = 100UL;
-        }
         text = String(percent) + "%";
     }
 
@@ -51,8 +66,7 @@ static void drawArduinoOtaProgress(unsigned int progress, unsigned int total, bo
     if (textWidth < 0) textWidth = 0;
     int16_t textX = (LED_WIDTH > textWidth) ? ((LED_WIDTH - textWidth) / 2) : 0;
     display_drawText(text.c_str(), textX, textColor);
-
-    display_show();
+    updateLEDs();
 }
 
 static void otaBeginIfNeeded() {
@@ -69,14 +83,17 @@ static void otaBeginIfNeeded() {
     ArduinoOTA.onStart([]() {
         otaUploadActive = true;
         wifiManager.setExternalOtaActive(true);
+        message_active = false;
+        display_suppressFunClockEffects(180000);
+        display_setNegative(false);
         WiFi.setSleep(false);
         FastLED.setDither(0);
-        drawArduinoOtaProgress(0, 100);
+        drawArduinoOtaProgress(0, 100, false, true);
         Serial.println("[OTA] Start");
     });
 
     ArduinoOTA.onEnd([]() {
-        drawArduinoOtaProgress(100, 100);
+        drawArduinoOtaProgress(100, 100, false, true);
         otaUploadActive = false;
         wifiManager.setExternalOtaActive(false);
         FastLED.setDither(1);
@@ -97,7 +114,7 @@ static void otaBeginIfNeeded() {
         otaUploadActive = false;
         wifiManager.setExternalOtaActive(false);
         FastLED.setDither(1);
-        drawArduinoOtaProgress(0, 1, true);
+        drawArduinoOtaProgress(0, 1, true, true);
         Serial.printf("[OTA] Error[%u]\n", (unsigned)error);
     });
 
@@ -165,7 +182,6 @@ static void run_led_tester() {
 void setup() {
     Serial.begin(115200);
     display_init();
-    display_bootTest();
     display_enabled = true;
     display_mode = DISPLAY_MODE_CLOCK;
 
@@ -284,13 +300,15 @@ void loop() {
             if (now - last_message_update > 30 / message_speed) {
                 message_offset--;
                 if (message_offset < -((int)strlen(message_text) * 6)) {
-                    message_offset = LED_WIDTH;
+                    message_active = false;
                 }
                 last_message_update = now;
             }
-            display_clear();
-            display_drawMessage(message_text, message_offset, message_color);
-            display_show();
+            if (message_active) {
+                display_clear();
+                display_drawMessage(message_text, message_offset, message_color);
+                display_show();
+            }
         } else if (display_mode == DISPLAY_MODE_ANIMATION) {
             // Priority 3: Animation
             switch(animation_mode) {

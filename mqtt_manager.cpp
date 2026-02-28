@@ -334,6 +334,7 @@ static void mqttApplyFunClockEffectsFromPrefs() {
     bool fxRotate180 = prefs.getUChar("fxRotate180", 1) == 1;
     bool fxFullRotate = prefs.getUChar("fxFullRotate", 1) == 1;
     bool fxMiddleSwap = prefs.getUChar("fxMiddleSwap", 1) == 1;
+    bool fxPileup = prefs.getUChar("fxPileup", 1) == 1;
     bool fxNegative = prefs.getUChar("displayNegative", 0) == 1;
     prefs.end();
 
@@ -348,6 +349,7 @@ static void mqttApplyFunClockEffectsFromPrefs() {
         fxRotate180,
         fxFullRotate,
         fxMiddleSwap,
+        fxPileup,
         fxNegative);
     display_setNegative(false);
 }

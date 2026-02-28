@@ -1,0 +1,98 @@
+LED Matrix Clock — Plan ulepszeń i checklista testów
+Data: 2026-02-28
+
+==================================================
+1) Plan wdrożenia (sprinty)
+==================================================
+
+Sprint 1 — Stabilność i regresje (~1.5h)
+- Uporządkować zapisy ustawień: jeden helper saveSetting(key,val) + debounce dla suwaków.
+- Dodać spójny mechanizm statusów API (success/error/message) dla endpointów.
+- Wprowadzić prosty guard trybów wyświetlania (lamp, quote, message, clock).
+- Kryterium zakończenia: brak przypadków typu „ustawienie A psuje B” po 20+ szybkich zmianach.
+
+Sprint 2 — MQTT / Home Assistant (~2h)
+- Dodać encję select dla trybu (clock/lamp/anim).
+- Dodać encję switch dla negatywu w losowaniu.
+- Ujednolicić publikację state po zmianach z WWW (nie tylko po MQTT).
+- Dodać cleanup discovery starych encji (retained empty payload dla legacy topiców).
+- Kryterium zakończenia: HA zawsze odzwierciedla stan panelu w <2s.
+
+Sprint 3 — UX panelu (~1.5h)
+- Zastąpić alert() lekkimi toastami sukces/błąd.
+- Ujednolicić nazwy przycisków i komunikatów (pełne PL).
+- Dodać pasek „Stan systemu” (WiFi/MQTT/OTA/RAM) z kolorami statusów.
+- Kryterium zakończenia: pełna konfiguracja bez przeładowań i bez surowych JSON na ekranie.
+
+Sprint 4 — Płynność i render (~1–1.5h)
+- Adaptacyjny blending klatek zależny od efektu/prędkości.
+- „Dirty frame”: nie wysyłać FastLED.show(), gdy klatka nie zmieniła się.
+- Kryterium zakończenia: płynniejszy ruch i mniej artefaktów przy zachowaniu czytelności.
+
+==================================================
+2) Checklista testów ręcznych
+==================================================
+
+Sprint 1: Stabilność ustawień
+- Zmień szybko 10x jasność animacji i 10x kolor, potem odśwież panel — wartości muszą zostać.
+- Przełącz kolejno: Negatyw, Cytaty, 3 losowe efekty — nic nie może samoczynnie się odznaczyć.
+- Włącz/wyłącz Lampę, wróć do zegara — jasność i kolor zegara muszą wrócić do jego ustawień.
+- Zapisz Czas — ma pokazać komunikat sukcesu, bez surowego JSON.
+- Restart urządzenia — wszystkie ustawienia mają się odtworzyć.
+
+Sprint 2: MQTT / HA
+- Po restarcie HA sprawdź, czy pojawiają się wszystkie encje (główne światło + lampa + dodatki).
+- Zmień kolor/jasność z HA i sprawdź odświeżenie stanu w panelu WWW.
+- Zmień ustawienia z WWW i sprawdź, czy HA dostaje nowy stan do 1–2 s.
+- Włącz/wyłącz lampę z HA — tryb wyświetlacza ma się przełączać poprawnie.
+- Odłącz WiFi na chwilę i przywróć — MQTT ma wrócić bez restartu.
+
+Sprint 3: UX panelu
+- Przeklikaj wszystkie zakładki mobilnie (szerokość telefonu) — brak nakładania elementów.
+- Wymuś błąd (np. zły host MQTT) — ma być czytelny komunikat błędu, bez blokujących alertów.
+- Wykonaj pełną konfigurację (czas, anim, lampa, mqtt, wifi) bez przeładowania strony.
+- Sprawdź spójność etykiet: jeden język, jednolity styl przycisków.
+
+Sprint 4: Płynność i render
+- Uruchom każdą animację testową na 15–20 s i oceń: brak szarpnięć i ghostingu statycznego zegara.
+- Włącz negatyw w losowaniu i sprawdź: efekt trwa max ~3 s i wraca do normalnego obrazu.
+- Długi test 30–60 min: brak zawieszek, brak restartów, stabilny FPS wizualnie.
+
+==================================================
+3) Plan „1 wieczór” (ok. 90 min)
+==================================================
+
+0:00–0:15
+- Sprint 1: porządek zapisu ustawień i statusy odpowiedzi API.
+- Szybki test: jasność/kolor/czas + odświeżenie panelu.
+
+0:15–0:40
+- Sprint 2 (część 1): select trybu + switch negatywu w discovery HA.
+- Szybki test: encje widoczne po Reload MQTT w HA.
+
+0:40–1:05
+- Sprint 2 (część 2): publikacja stanów po zmianach z WWW.
+- Szybki test: WWW -> HA i HA -> WWW synchronizacja.
+
+1:05–1:25
+- Sprint 3: toasty zamiast alert + drobne porządki nazewnictwa.
+- Szybki test: poprawny komunikat dla sukcesu i błędu.
+
+1:25–1:30
+- Podsumowanie i backup ustawień.
+
+==================================================
+4) Priorytety wdrożenia (kolejność)
+==================================================
+
+P1 (najpierw):
+- Stabilność zapisów i brak regresji (Sprint 1).
+- MQTT/HA spójność stanów (Sprint 2).
+
+P2:
+- UX komunikatów i status systemu (Sprint 3).
+
+P3:
+- Optymalizacja renderu i wydajności (Sprint 4).
+
+Koniec dokumentu.

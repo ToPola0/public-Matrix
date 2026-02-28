@@ -1,0 +1,18 @@
+# Arduino build artifacts
+build/
+*.elf
+*.bin
+*.map
+*.o
+*.d
+
+# Caches / generated metadata
+*.cache
+compile_commands.json
+file_opts
+flash_args
+sdkconfig
+
+# Logs
+*.log
+*.exit

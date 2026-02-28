@@ -9,6 +9,7 @@
 #include "display.h"
 
 static const char* kDefaultApPassword = "12345678";
+static const char* kHiddenApPasswordPlaceholder = "********";
 
 static WiFiClient mqttNetClient;
 static PubSubClient mqttClient(mqttNetClient);
@@ -42,6 +43,23 @@ static String mqttApPasswordShowCommandTopic;
 static String mqttApPasswordStateTopic;
 static String mqttApPasswordCommandTopic;
 
+struct MqttHaEntityConfig {
+    bool enabled;
+    String entity;
+    String topic;
+    String displayName;
+    String unit;
+    uint16_t durationSec;
+    String lastValue;
+    bool hasValue;
+};
+
+static const uint8_t kMaxHaEntities = 10;
+static MqttHaEntityConfig mqttHaEntities[kMaxHaEntities];
+static uint8_t mqttHaEntityCount = 0;
+static uint8_t mqttHaRotationIndex = 0;
+static uint32_t mqttHaNextDisplayMs = 0;
+
 static bool mqttLampConfigLoaded = false;
 static bool mqttLampEnabled = false;
 static uint8_t mqttLampBrightness = 180;
@@ -62,6 +80,13 @@ static void mqttPublishApPasswordShowState();
 static void mqttPublishApPasswordState();
 static void mqttPublishDiscoveryCleanup();
 static void mqttLoadApPasswordConfig();
+static void mqttRefreshApPasswordCache();
+static void mqttLoadHaEntitiesConfigFromPrefs();
+static bool mqttApplyHaEntitiesConfigJson(const String& json, bool persistToPrefs);
+static void mqttSubscribeHaEntityTopics();
+static bool mqttTopicMatchesHaEntity(const String& topic, uint8_t& outIndex);
+static bool mqttHasAnyHaEntityWithValue();
+static String mqttResolveHaEntityTopic(const String& entityName, const String& fallbackTopic);
 
 static bool mqttIsApPasswordDisplayEnabled() {
     return mqttApPasswordVisible;
@@ -69,6 +94,146 @@ static bool mqttIsApPasswordDisplayEnabled() {
 
 static String mqttGetApPassword() {
     return mqttApPasswordCached;
+}
+
+static void mqttRefreshApPasswordCache() {
+    Preferences prefs;
+    if (!prefs.begin("wifi", true)) {
+        mqttApPasswordCached = String(kDefaultApPassword);
+        return;
+    }
+    String password = prefs.getString("apPassword", kDefaultApPassword);
+    prefs.end();
+
+    password.trim();
+    if (password.length() < 8 || password.length() > 63) {
+        password = String(kDefaultApPassword);
+    }
+    mqttApPasswordCached = password;
+}
+
+static bool mqttApplyHaEntitiesConfigJson(const String& json, bool persistToPrefs) {
+    DynamicJsonDocument doc(8192);
+    DeserializationError err = deserializeJson(doc, json);
+    if (err || !doc.is<JsonArray>()) {
+        return false;
+    }
+
+    JsonArray arr = doc.as<JsonArray>();
+    uint8_t count = 0;
+    for (JsonObject item : arr) {
+        if (count >= kMaxHaEntities) break;
+
+        String entityName = String((const char*)(item["entity"] | ""));
+        if (entityName.length() == 0) {
+            entityName = String((const char*)(item["topic"] | ""));
+        }
+        entityName.trim();
+
+        String fallbackTopic = String((const char*)(item["topic"] | ""));
+        fallbackTopic.trim();
+        String topic = mqttResolveHaEntityTopic(entityName, fallbackTopic);
+        if (topic.length() == 0) continue;
+
+        mqttHaEntities[count].enabled = (item["enabled"] | true);
+        mqttHaEntities[count].entity = entityName;
+        mqttHaEntities[count].topic = topic;
+        mqttHaEntities[count].displayName = String((const char*)(item["displayName"] | item["name"] | ""));
+        mqttHaEntities[count].unit = String((const char*)(item["unit"] | item["suffix"] | ""));
+        mqttHaEntities[count].unit.trim();
+        mqttHaEntities[count].durationSec = (uint16_t)constrain((int)(item["durationSec"] | 8), 2, 120);
+        mqttHaEntities[count].lastValue = "";
+        mqttHaEntities[count].hasValue = false;
+        count++;
+    }
+
+    mqttHaEntityCount = count;
+    mqttHaRotationIndex = 0;
+    mqttHaNextDisplayMs = 0;
+
+    if (persistToPrefs) {
+        Preferences prefs;
+        if (prefs.begin("wifi", false)) {
+            prefs.putString("haEntitiesCfg", json);
+            prefs.end();
+        }
+    }
+
+    if (mqttClient.connected()) {
+        mqttSubscribeHaEntityTopics();
+    }
+    return true;
+}
+
+static String mqttResolveHaEntityTopic(const String& entityName, const String& fallbackTopic) {
+    String topic = fallbackTopic;
+    topic.trim();
+    if (topic.length() > 0) {
+        return topic;
+    }
+
+    String entity = entityName;
+    entity.trim();
+    if (entity.length() == 0) {
+        return "";
+    }
+
+    if (entity.indexOf('/') >= 0) {
+        return entity;
+    }
+
+    if (entity.indexOf('.') >= 0) {
+        String converted = entity;
+        converted.replace('.', '/');
+        return String("homeassistant/") + converted + "/state";
+    }
+
+    return entity;
+}
+
+static void mqttLoadHaEntitiesConfigFromPrefs() {
+    Preferences prefs;
+    String json = "[]";
+    if (prefs.begin("wifi", true)) {
+        json = prefs.getString("haEntitiesCfg", "[]");
+        prefs.end();
+    }
+    if (!mqttApplyHaEntitiesConfigJson(json, false)) {
+        mqttHaEntityCount = 0;
+    }
+}
+
+
+static bool mqttTopicMatchesHaEntity(const String& topic, uint8_t& outIndex) {
+    for (uint8_t i = 0; i < mqttHaEntityCount; i++) {
+        if (mqttHaEntities[i].topic == topic || mqttHaEntities[i].entity == topic) {
+            outIndex = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void mqttSubscribeHaEntityTopics() {
+    if (!mqttClient.connected()) return;
+
+    for (uint8_t i = 0; i < mqttHaEntityCount; i++) {
+        if (!mqttHaEntities[i].enabled) continue;
+        if (mqttHaEntities[i].topic.length() == 0) continue;
+        mqttClient.subscribe(mqttHaEntities[i].topic.c_str());
+        if (mqttHaEntities[i].entity.length() > 0 && mqttHaEntities[i].entity != mqttHaEntities[i].topic) {
+            mqttClient.subscribe(mqttHaEntities[i].entity.c_str());
+        }
+    }
+}
+
+static bool mqttHasAnyHaEntityWithValue() {
+    for (uint8_t i = 0; i < mqttHaEntityCount; i++) {
+        if (mqttHaEntities[i].enabled && mqttHaEntities[i].hasValue) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static void mqttLoadApPasswordConfig() {
@@ -164,6 +329,7 @@ static void mqttApplyFunClockEffectsFromPrefs() {
     bool fxRainbow = prefs.getUChar("fxRainbow", 1) == 1;
     bool fxHoursSlide = prefs.getUChar("fxHoursSlide", 1) == 1;
     bool fxMatrixFont = prefs.getUChar("fxMatrixFont", 1) == 1;
+    bool fxMatrixSideways = prefs.getUChar("fxMatrixSideways", 1) == 1;
     bool fxUpsideDown = prefs.getUChar("fxUpsideDown", 1) == 1;
     bool fxRotate180 = prefs.getUChar("fxRotate180", 1) == 1;
     bool fxFullRotate = prefs.getUChar("fxFullRotate", 1) == 1;
@@ -177,6 +343,7 @@ static void mqttApplyFunClockEffectsFromPrefs() {
         fxRainbow,
         fxHoursSlide,
         fxMatrixFont,
+        fxMatrixSideways,
         fxUpsideDown,
         fxRotate180,
         fxFullRotate,
@@ -321,9 +488,10 @@ static void mqttPublishApPasswordShowState() {
 static void mqttPublishApPasswordState() {
     if (!mqttClient.connected()) return;
     if (!mqttIsApPasswordDisplayEnabled()) {
-        mqttClient.publish(mqttApPasswordStateTopic.c_str(), "ukryte", true);
+        mqttClient.publish(mqttApPasswordStateTopic.c_str(), kHiddenApPasswordPlaceholder, true);
         return;
     }
+    mqttRefreshApPasswordCache();
     String apPassword = mqttGetApPassword();
     mqttClient.publish(mqttApPasswordStateTopic.c_str(), apPassword.c_str(), true);
 }
@@ -472,6 +640,18 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
 
         mqttPublishApPasswordState();
         mqttPublishState();
+        return;
+    }
+
+    uint8_t haIndex = 0;
+    if (mqttTopicMatchesHaEntity(topicStr, haIndex)) {
+        char temp[192];
+        unsigned int copyLen = length < (sizeof(temp) - 1) ? length : (sizeof(temp) - 1);
+        memcpy(temp, payload, copyLen);
+        temp[copyLen] = '\0';
+        mqttHaEntities[haIndex].lastValue = String(temp);
+        mqttHaEntities[haIndex].lastValue.trim();
+        mqttHaEntities[haIndex].hasValue = mqttHaEntities[haIndex].lastValue.length() > 0;
         return;
     }
 
@@ -927,6 +1107,7 @@ void mqtt_manager_begin() {
     mqttRebuildTopics();
     mqttLoadLampConfigIfNeeded();
     mqttLoadApPasswordConfig();
+    mqttLoadHaEntitiesConfigFromPrefs();
 }
 
 void mqtt_manager_configure(bool enabled,
@@ -1008,6 +1189,7 @@ void mqtt_manager_loop() {
         mqttClient.subscribe(mqttNegativeCommandTopic.c_str());
         mqttClient.subscribe(mqttApPasswordShowCommandTopic.c_str());
         mqttClient.subscribe(mqttApPasswordCommandTopic.c_str());
+        mqttSubscribeHaEntityTopics();
         mqttPublishExtraStates();
         mqttLastStatePublishMs = now;
     }
@@ -1056,4 +1238,118 @@ String mqtt_manager_getStatus() {
     if (!mqttEnabled) return "wyłączony";
     if (mqttHost.length() == 0) return "brak hosta";
     return mqttClient.connected() ? "połączony" : "rozłączony";
+}
+
+void mqtt_manager_setHaEntitiesConfig(const String& configJson) {
+    mqttApplyHaEntitiesConfigJson(configJson, true);
+}
+
+String mqtt_manager_getHaEntitiesConfigJson() {
+    DynamicJsonDocument doc(8192);
+    JsonArray arr = doc.to<JsonArray>();
+
+    for (uint8_t i = 0; i < mqttHaEntityCount; i++) {
+        JsonObject item = arr.createNestedObject();
+        item["enabled"] = mqttHaEntities[i].enabled;
+        item["entity"] = mqttHaEntities[i].entity;
+        item["displayName"] = mqttHaEntities[i].displayName;
+        item["unit"] = mqttHaEntities[i].unit;
+        item["topic"] = mqttHaEntities[i].topic;
+        item["durationSec"] = mqttHaEntities[i].durationSec;
+    }
+
+    String out;
+    serializeJson(arr, out);
+    return out;
+}
+
+void mqtt_manager_tryDisplayHaEntity() {
+    if (!mqttEnabled) return;
+    if (!mqttClient.connected()) return;
+    if (mqttHaEntityCount == 0) return;
+    if (!mqttHasAnyHaEntityWithValue()) return;
+    if (message_active) return;
+    if (display_mode == DISPLAY_MODE_QUOTE || display_mode == DISPLAY_MODE_LAMP) return;
+
+    uint32_t now = millis();
+    if (now < mqttHaNextDisplayMs) return;
+
+    for (uint8_t step = 0; step < mqttHaEntityCount; step++) {
+        uint8_t idx = (uint8_t)((mqttHaRotationIndex + step) % mqttHaEntityCount);
+        MqttHaEntityConfig& item = mqttHaEntities[idx];
+        if (!item.enabled || !item.hasValue) continue;
+
+        String label = item.displayName;
+        if (label.length() == 0) {
+            label = item.entity;
+        }
+        String text = "";
+        if (label.length() > 0) {
+            text = label + ": ";
+        }
+        text += item.lastValue;
+        if (item.unit.length() > 0) {
+            text += " ";
+            text += item.unit;
+        }
+        text.trim();
+        if (text.length() == 0) continue;
+
+        strlcpy(message_text, text.c_str(), sizeof(message_text));
+        message_active = true;
+        message_offset = LED_WIDTH;
+        message_speed = 1;
+        message_color = CRGB::Cyan;
+        message_start_time = now;
+        message_time_left = (uint32_t)item.durationSec * 1000U;
+
+        mqttHaRotationIndex = (uint8_t)((idx + 1) % mqttHaEntityCount);
+        mqttHaNextDisplayMs = now + message_time_left;
+        return;
+    }
+
+    mqttHaNextDisplayMs = now + 5000U;
+}
+
+void mqtt_manager_setHaEntitiesDisplayEnabled(bool enabled) {
+    (void)enabled;
+}
+
+bool mqtt_manager_triggerHaEntityDisplay(const String& entityName) {
+    String target = entityName;
+    target.trim();
+    if (target.length() == 0) return false;
+
+    for (uint8_t i = 0; i < mqttHaEntityCount; i++) {
+        MqttHaEntityConfig& item = mqttHaEntities[i];
+        if (item.entity != target) continue;
+        if (!item.hasValue || item.lastValue.length() == 0) {
+            return false;
+        }
+
+        String label = item.displayName;
+        if (label.length() == 0) label = item.entity;
+        String text = "";
+        if (label.length() > 0) text = label + ": ";
+        text += item.lastValue;
+        if (item.unit.length() > 0) {
+            text += " ";
+            text += item.unit;
+        }
+        text.trim();
+        if (text.length() == 0) return false;
+
+        uint32_t now = millis();
+        strlcpy(message_text, text.c_str(), sizeof(message_text));
+        message_active = true;
+        message_offset = LED_WIDTH;
+        message_speed = 1;
+        message_color = CRGB::Cyan;
+        message_start_time = now;
+        message_time_left = (uint32_t)item.durationSec * 1000U;
+        mqttHaNextDisplayMs = now + message_time_left;
+        return true;
+    }
+
+    return false;
 }

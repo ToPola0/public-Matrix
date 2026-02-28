@@ -48,6 +48,7 @@ static bool funClockMirrorEnabled = true;
 static bool funClockRainbowEnabled = true;
 static bool funClockHoursSlideEnabled = true;
 static bool funClockMatrixFontEnabled = true;
+static bool funClockMatrixSidewaysEnabled = true;
 static bool funClockUpsideDownEnabled = true;
 static bool funClockRotate180Enabled = true;
 static bool funClockFullRotateEnabled = true;
@@ -70,11 +71,12 @@ enum FunClockEffect : uint8_t {
     FUN_CLOCK_EFFECT_RAINBOW = 3,
     FUN_CLOCK_EFFECT_HOURS_SLIDE = 4,
     FUN_CLOCK_EFFECT_MATRIX_FONT = 5,
-    FUN_CLOCK_EFFECT_UPSIDE_DOWN = 6,
-    FUN_CLOCK_EFFECT_ROTATE_180 = 7,
-    FUN_CLOCK_EFFECT_FULL_ROTATE = 8,
-    FUN_CLOCK_EFFECT_MIDDLE_SWAP = 9,
-    FUN_CLOCK_EFFECT_NEGATIVE = 10
+    FUN_CLOCK_EFFECT_MATRIX_SIDEWAYS = 6,
+    FUN_CLOCK_EFFECT_UPSIDE_DOWN = 7,
+    FUN_CLOCK_EFFECT_ROTATE_180 = 8,
+    FUN_CLOCK_EFFECT_FULL_ROTATE = 9,
+    FUN_CLOCK_EFFECT_MIDDLE_SWAP = 10,
+    FUN_CLOCK_EFFECT_NEGATIVE = 11
 };
 
 static FunClockEffect funClockLastEffect = FUN_CLOCK_EFFECT_NONE;
@@ -104,6 +106,7 @@ static void funClockStartMirror(uint32_t now);
 static void funClockStartRainbow(uint32_t now);
 static void funClockStartHoursSlide(uint32_t now);
 static void funClockStartMatrixFont(uint32_t now);
+static void funClockStartMatrixSideways(uint32_t now);
 static void funClockStartUpsideDown(uint32_t now);
 static void funClockStartRotate180(uint32_t now);
 static void funClockStartFullRotate(uint32_t now);
@@ -153,6 +156,7 @@ static uint8_t displayAdaptiveBlendWeight() {
         case FUN_CLOCK_EFFECT_RAINBOW: return 96;
         case FUN_CLOCK_EFFECT_HOURS_SLIDE: return 64;
         case FUN_CLOCK_EFFECT_MATRIX_FONT: return 52;
+        case FUN_CLOCK_EFFECT_MATRIX_SIDEWAYS: return 46;
         case FUN_CLOCK_EFFECT_UPSIDE_DOWN: return 36;
         case FUN_CLOCK_EFFECT_ROTATE_180: return 36;
         case FUN_CLOCK_EFFECT_FULL_ROTATE: return 34;
@@ -181,7 +185,7 @@ static void funClockInitIfNeeded() {
 }
 
 static bool funClockStartAnyEnabledEffect(uint32_t now) {
-    FunClockEffect enabled[10];
+    FunClockEffect enabled[11];
     uint8_t count = 0;
 
     if (funClockMoveEnabled) enabled[count++] = FUN_CLOCK_EFFECT_MOVE;
@@ -189,6 +193,7 @@ static bool funClockStartAnyEnabledEffect(uint32_t now) {
     if (funClockRainbowEnabled) enabled[count++] = FUN_CLOCK_EFFECT_RAINBOW;
     if (funClockHoursSlideEnabled) enabled[count++] = FUN_CLOCK_EFFECT_HOURS_SLIDE;
     if (funClockMatrixFontEnabled) enabled[count++] = FUN_CLOCK_EFFECT_MATRIX_FONT;
+    if (funClockMatrixSidewaysEnabled) enabled[count++] = FUN_CLOCK_EFFECT_MATRIX_SIDEWAYS;
     if (funClockUpsideDownEnabled) enabled[count++] = FUN_CLOCK_EFFECT_UPSIDE_DOWN;
     if (funClockRotate180Enabled) enabled[count++] = FUN_CLOCK_EFFECT_ROTATE_180;
     if (funClockFullRotateEnabled) enabled[count++] = FUN_CLOCK_EFFECT_FULL_ROTATE;
@@ -202,7 +207,7 @@ static bool funClockStartAnyEnabledEffect(uint32_t now) {
         blocked = funClockLastEffect;
     }
 
-    FunClockEffect selectable[10];
+    FunClockEffect selectable[11];
     uint8_t selectableCount = 0;
     for (uint8_t i = 0; i < count; i++) {
         if (enabled[i] != blocked) {
@@ -229,6 +234,8 @@ static bool funClockStartAnyEnabledEffect(uint32_t now) {
         funClockStartRainbow(now);
     } else if (selected == FUN_CLOCK_EFFECT_HOURS_SLIDE) {
         funClockStartHoursSlide(now);
+    } else if (selected == FUN_CLOCK_EFFECT_MATRIX_SIDEWAYS) {
+        funClockStartMatrixSideways(now);
     } else if (selected == FUN_CLOCK_EFFECT_UPSIDE_DOWN) {
         funClockStartUpsideDown(now);
     } else if (selected == FUN_CLOCK_EFFECT_ROTATE_180) {
@@ -299,6 +306,15 @@ static void funClockStartMatrixFont(uint32_t now) {
     funClockState.activeEffect = FUN_CLOCK_EFFECT_MATRIX_FONT;
     funClockState.effectStartMs = now;
     funClockState.effectDurationMs = (uint32_t)random(5000, 8001);
+}
+
+static void funClockStartMatrixSideways(uint32_t now) {
+    for (uint8_t i = 0; i < 8; i++) {
+        digitOffset[i] = 0;
+    }
+    funClockState.activeEffect = FUN_CLOCK_EFFECT_MATRIX_SIDEWAYS;
+    funClockState.effectStartMs = now;
+    funClockState.effectDurationMs = (uint32_t)random(5200, 7601);
 }
 
 static void funClockStartUpsideDown(uint32_t now) {
@@ -400,6 +416,7 @@ static void funClockUpdateState() {
         funClockState.activeEffect == FUN_CLOCK_EFFECT_RAINBOW ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_HOURS_SLIDE ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_MATRIX_FONT ||
+        funClockState.activeEffect == FUN_CLOCK_EFFECT_MATRIX_SIDEWAYS ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_UPSIDE_DOWN ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_ROTATE_180 ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_FULL_ROTATE ||
@@ -446,6 +463,11 @@ void display_triggerFunClockMatrixFont() {
     funClockStartMatrixFont(millis());
 }
 
+void display_triggerFunClockMatrixSideways() {
+    funClockInitIfNeeded();
+    funClockStartMatrixSideways(millis());
+}
+
 void display_triggerFunClockUpsideDown() {
     funClockInitIfNeeded();
     funClockStartUpsideDown(millis());
@@ -484,12 +506,13 @@ uint32_t display_getFunClockCompletedEffectsCount() {
     return funClockCompletedEffectsCount;
 }
 
-void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool negativeEnabled) {
+void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool matrixSidewaysEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool negativeEnabled) {
     funClockMoveEnabled = moveEnabled;
     funClockMirrorEnabled = mirrorEnabled;
     funClockRainbowEnabled = rainbowEnabled;
     funClockHoursSlideEnabled = hoursSlideEnabled;
     funClockMatrixFontEnabled = matrixFontEnabled;
+    funClockMatrixSidewaysEnabled = matrixSidewaysEnabled;
     funClockUpsideDownEnabled = upsideDownEnabled;
     funClockRotate180Enabled = rotate180Enabled;
     funClockFullRotateEnabled = fullRotateEnabled;
@@ -512,6 +535,9 @@ void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, boo
         funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
     }
     if (!funClockMatrixFontEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_MATRIX_FONT) {
+        funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
+    }
+    if (!funClockMatrixSidewaysEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_MATRIX_SIDEWAYS) {
         funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
     }
     if (!funClockUpsideDownEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_UPSIDE_DOWN) {
@@ -663,6 +689,22 @@ static void drawPredatorGlyph4x7(uint8_t glyphIndex, int16_t x, int16_t y, CRGB 
             if (bits & (1 << row)) {
                 int16_t px = x + col;
                 int16_t py = y + row;
+                if (px >= 0 && px < LED_WIDTH && py >= 0 && py < LED_HEIGHT) {
+                    leds[XY(px, py)] = color;
+                }
+            }
+        }
+    }
+}
+
+static void drawPredatorGlyph7x4Sideways(uint8_t glyphIndex, int16_t x, int16_t y, CRGB color) {
+    glyphIndex %= 10;
+    for (uint8_t col = 0; col < 4; col++) {
+        uint8_t bits = predatorGlyphs4x7[glyphIndex][col];
+        for (uint8_t row = 0; row < 7; row++) {
+            if (bits & (1 << row)) {
+                int16_t px = x + (6 - row);
+                int16_t py = y + col;
                 if (px >= 0 && px < LED_WIDTH && py >= 0 && py < LED_HEIGHT) {
                     leds[XY(px, py)] = color;
                 }
@@ -1142,6 +1184,40 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
             return;
         }
 
+        if (funClockState.activeEffect == FUN_CLOCK_EFFECT_MATRIX_SIDEWAYS) {
+            const int16_t glyphW = 7;
+            const int16_t glyphH = 4;
+            const int16_t gap = 1;
+            const int16_t digitsPerRow = 4;
+            const int16_t rowW = glyphW * digitsPerRow + gap * (digitsPerRow - 1);
+            const int16_t totalH = glyphH * 2;
+            int16_t yTop = (LED_HEIGHT > totalH) ? ((LED_HEIGHT - totalH) / 2) : 0;
+
+            uint32_t elapsed = millis() - funClockState.effectStartMs;
+            uint32_t duration = funClockState.effectDurationMs;
+            if (duration == 0) duration = 1;
+            if (elapsed > duration) elapsed = duration;
+
+            int16_t scrollRange = rowW + LED_WIDTH;
+            int16_t scroll = (int16_t)(((uint32_t)scrollRange * elapsed) / duration);
+            int16_t xBase = LED_WIDTH - scroll;
+
+            uint8_t pulseTop = (uint8_t)(160 + (sin8((uint8_t)(millis() / 8U)) >> 1));
+            uint8_t pulseBottom = (uint8_t)(160 + (sin8((uint8_t)(millis() / 8U + 77U)) >> 1));
+            CRGB topColor = CRGB(0, pulseTop, 0);
+            CRGB bottomColor = CRGB(0, pulseBottom, 0);
+
+            uint8_t rowTop[4] = {h1, h2, m1, m2};
+            uint8_t rowBottom[4] = {m1, m2, s1, s2};
+
+            for (uint8_t i = 0; i < 4; i++) {
+                int16_t px = xBase + (int16_t)i * (glyphW + gap);
+                drawPredatorGlyph7x4Sideways(rowTop[i], px, yTop, topColor);
+                drawPredatorGlyph7x4Sideways(rowBottom[i], px, yTop + glyphH, bottomColor);
+            }
+            return;
+        }
+
         if (funClockState.activeEffect == FUN_CLOCK_EFFECT_FULL_ROTATE) {
             const int16_t digitW = 4;
             const int16_t colonW = 1;
@@ -1298,8 +1374,8 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
         }
 
         if (funClockState.activeEffect == FUN_CLOCK_EFFECT_MIDDLE_SWAP) {
-            const uint32_t secondDigitDelayMs = 1000U;
-            const uint32_t phaseMs = 700U;
+            const uint32_t perDigitDelayMs = 220U;
+            const uint32_t phaseMs = 520U;
 
             auto applyOutInSlide = [phaseMs](int16_t baseX, int16_t outX, int16_t inStartX, uint32_t t) -> int16_t {
                 if (t < phaseMs) {
@@ -1314,11 +1390,17 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
             };
 
             uint32_t elapsed = millis() - funClockState.effectStartMs;
-            x3 = applyOutInSlide(x3, LED_WIDTH + digitW, -digitW, elapsed);
-
-            if (elapsed >= secondDigitDelayMs) {
-                uint32_t t4 = elapsed - secondDigitDelayMs;
-                x4 = applyOutInSlide(x4, -digitW, LED_WIDTH + digitW, t4);
+            int16_t* digitSlots[6] = {&x0, &x1, &x3, &x4, &x6, &x7};
+            for (uint8_t i = 0; i < 6; i++) {
+                uint32_t startDelay = (uint32_t)i * perDigitDelayMs;
+                if (elapsed < startDelay) {
+                    continue;
+                }
+                uint32_t t = elapsed - startDelay;
+                bool slideRight = (i % 2U) == 0U;
+                int16_t outX = slideRight ? (LED_WIDTH + digitW) : -digitW;
+                int16_t inStartX = slideRight ? -digitW : (LED_WIDTH + digitW);
+                *digitSlots[i] = applyOutInSlide(*digitSlots[i], outX, inStartX, t);
             }
         }
 

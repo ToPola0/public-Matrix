@@ -31,35 +31,26 @@ WifiManager wifiManager;
 static bool otaInitialized = false;
 static bool otaUploadActive = false;
 
-static void drawArduinoOtaProgress(unsigned int progress, unsigned int total) {
+static void drawArduinoOtaProgress(unsigned int progress, unsigned int total, bool errorState = false) {
     display_clear();
 
-    const int16_t barHeight = (LED_HEIGHT >= 8) ? 3 : 2;
-    const int16_t barY = (LED_HEIGHT - barHeight) / 2;
-
-    for (int16_t x = 0; x < LED_WIDTH; x++) {
-        for (int16_t y = 0; y < barHeight; y++) {
-            int16_t py = barY + y;
-            if (py >= 0 && py < LED_HEIGHT) {
-                leds[XY(x, py)] = CRGB::Black;
-            }
+    CRGB textColor = errorState ? CRGB::Red : CRGB::Green;
+    String text;
+    if (errorState) {
+        text = "ERR";
+    } else {
+        uint32_t percent = 0;
+        if (total > 0U) {
+            percent = ((uint32_t)progress * 100UL) / (uint32_t)total;
+            if (percent > 100UL) percent = 100UL;
         }
+        text = String(percent) + "%";
     }
 
-    int16_t fill = 0;
-    if (total > 0) {
-        fill = (int16_t)(((uint32_t)progress * LED_WIDTH) / total);
-        if (fill > LED_WIDTH) fill = LED_WIDTH;
-    }
-
-    for (int16_t x = 0; x < fill; x++) {
-        for (int16_t y = 0; y < barHeight; y++) {
-            int16_t py = barY + y;
-            if (py >= 0 && py < LED_HEIGHT) {
-                leds[XY(x, py)] = CRGB::Green;
-            }
-        }
-    }
+    int16_t textWidth = (int16_t)text.length() * 6 - 1;
+    if (textWidth < 0) textWidth = 0;
+    int16_t textX = (LED_WIDTH > textWidth) ? ((LED_WIDTH - textWidth) / 2) : 0;
+    display_drawText(text.c_str(), textX, textColor);
 
     display_show();
 }
@@ -106,6 +97,7 @@ static void otaBeginIfNeeded() {
         otaUploadActive = false;
         wifiManager.setExternalOtaActive(false);
         FastLED.setDither(1);
+        drawArduinoOtaProgress(0, 1, true);
         Serial.printf("[OTA] Error[%u]\n", (unsigned)error);
     });
 
@@ -232,6 +224,7 @@ void loop() {
     
     if (wifiManager.isConnected()) {
         scheduler_loop();
+        mqtt_manager_tryDisplayHaEntity();
         
         // === BUZZER LOGIC (non-blocking) ===
         // Handle buzzer off

@@ -47,11 +47,13 @@ private:
     void handleApiNetworkInfo();
     void handleApiWifiScan();
     void handleApiMqttConfig();
+    void handleApiHaEntitiesConfig();
     void handleApiLampConfig();
     void handleApiQuotesList();
     void handleApiNtpConfig();
     void handleSaveQuote();
     void handleSaveMqtt();
+    void handleSaveHaEntities();
     void handleSaveLampConfig();
     void handleTriggerQuote();
     void handleTriggerClockAnimation();
@@ -59,10 +61,12 @@ private:
     void handleTriggerClockRainbow();
     void handleTriggerClockHoursSlide();
     void handleTriggerClockMatrixFont();
+    void handleTriggerClockMatrixSideways();
     void handleTriggerClockUpsideDown();
     void handleTriggerClockRotate180();
     void handleTriggerClockFullRotate();
     void handleTriggerClockMiddleSwap();
+    void handleTriggerHaEntity();
     void handleDeleteQuote();
     void handleExportQuotes();
     void handleImportQuotes();
@@ -70,6 +74,7 @@ private:
     void handleApiQuotesConfig();
     void handleApiAnimationsConfig();
     void handleApiOtaStatus();
+    void handleLogout();
     void handleOtaUpload();
     void handleApiColorsPalette();
     bool ensureAuthenticated();

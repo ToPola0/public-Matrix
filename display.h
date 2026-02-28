@@ -66,6 +66,7 @@ void display_triggerFunClockMirror();
 void display_triggerFunClockRainbow();
 void display_triggerFunClockHoursSlide();
 void display_triggerFunClockMatrixFont();
+void display_triggerFunClockMatrixSideways();
 void display_triggerFunClockUpsideDown();
 void display_triggerFunClockRotate180();
 void display_triggerFunClockFullRotate();
@@ -73,7 +74,7 @@ void display_triggerFunClockMiddleSwap();
 void display_setFunClockIntervalSeconds(uint16_t seconds);
 void display_resetFunClockNextEffectTimer();
 uint32_t display_getFunClockCompletedEffectsCount();
-void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool negativeEnabled);
+void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool matrixSidewaysEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool negativeEnabled);
 void display_suppressFunClockEffects(uint16_t durationMs);
 
 // === Animation functions ===

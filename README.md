@@ -59,6 +59,18 @@ W pliku config.h ustaw (opcjonalnie, bo i tak możesz skonfigurować z panelu WW
 
 Po połączeniu z siecią wejdź na adres IP urządzenia (sprawdzisz w logu portu szeregowego).
 
+Panel WWW jest zabezpieczony logowaniem HTTP Basic:
+
+- użytkownik: `admin`
+- hasło: takie samo jak aktualne hasło AP
+
+W zakładce WiFi możesz zmienić:
+
+- hasło sieci WiFi (STA)
+- hasło AP / logowania WWW (8-63 znaki)
+
+Aktualne hasło AP/WWW jest wypisywane w `Serial Monitor` po starcie i po zmianie.
+
 W panelu skonfigurujesz:
 
 - czas i NTP
@@ -77,7 +89,16 @@ Dostępne są m.in. encje:
 - light: lampa
 - select: tryb (clock/lamp/animation)
 - switch: negatyw (losowanie)
+- switch: pokaż hasło AP
+- text: hasło AP (pole edytowalne)
 - sensory status/rssi
+
+Zasada działania haseł w HA:
+
+- `Pokaż hasło AP` domyślnie jest `OFF`.
+- Gdy `OFF`, encja tekstowa hasła pokazuje `ukryte`.
+- Gdy `ON`, encja tekstowa pokazuje aktualne hasło AP.
+- Hasło AP można też zmienić z encji `text` (zmiana zapisywana, aktywna po restarcie urządzenia).
 
 ## 8. OTA
 

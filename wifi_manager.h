@@ -72,6 +72,8 @@ private:
     void handleApiOtaStatus();
     void handleOtaUpload();
     void handleApiColorsPalette();
+    bool ensureAuthenticated();
+    void loadApPassword();
     void loadConfig();
     void saveConfig(const WifiConfig& config);
     void reconnectIfNeeded();
@@ -87,6 +89,7 @@ private:
     size_t otaProgress = 0;
     size_t otaTotal = 0;
     bool otaUpdating = false;
+    String apPassword;
 };
 
 #endif // WIFI_MANAGER_H

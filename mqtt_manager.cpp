@@ -8,6 +8,8 @@
 #include "clock.h"
 #include "display.h"
 
+static const char* kDefaultApPassword = "12345678";
+
 static WiFiClient mqttNetClient;
 static PubSubClient mqttClient(mqttNetClient);
 
@@ -35,11 +37,17 @@ static String mqttModeStateTopic;
 static String mqttModeCommandTopic;
 static String mqttNegativeStateTopic;
 static String mqttNegativeCommandTopic;
+static String mqttApPasswordShowStateTopic;
+static String mqttApPasswordShowCommandTopic;
+static String mqttApPasswordStateTopic;
+static String mqttApPasswordCommandTopic;
 
 static bool mqttLampConfigLoaded = false;
 static bool mqttLampEnabled = false;
 static uint8_t mqttLampBrightness = 180;
 static CRGB mqttLampColor = CRGB::White;
+static bool mqttApPasswordVisible = false;
+static String mqttApPasswordCached = String(kDefaultApPassword);
 
 static bool mqttDiscoveryPublished = false;
 static uint32_t mqttLastConnectAttemptMs = 0;
@@ -50,7 +58,37 @@ static void mqttPublishExtraStates();
 static void mqttPublishLampState();
 static void mqttPublishModeState();
 static void mqttPublishNegativeState();
+static void mqttPublishApPasswordShowState();
+static void mqttPublishApPasswordState();
 static void mqttPublishDiscoveryCleanup();
+static void mqttLoadApPasswordConfig();
+
+static bool mqttIsApPasswordDisplayEnabled() {
+    return mqttApPasswordVisible;
+}
+
+static String mqttGetApPassword() {
+    return mqttApPasswordCached;
+}
+
+static void mqttLoadApPasswordConfig() {
+    Preferences prefs;
+    if (!prefs.begin("wifi", true)) {
+        mqttApPasswordVisible = false;
+        mqttApPasswordCached = String(kDefaultApPassword);
+        return;
+    }
+
+    mqttApPasswordVisible = prefs.getUChar("mqttShowApPassword", 0) == 1;
+    String password = prefs.getString("apPassword", kDefaultApPassword);
+    prefs.end();
+
+    password.trim();
+    if (password.length() < 8 || password.length() > 63) {
+        password = String(kDefaultApPassword);
+    }
+    mqttApPasswordCached = password;
+}
 
 static bool mqttParseHexColor(const String& color, CRGB& outColor) {
     const char* raw = color.c_str();
@@ -184,6 +222,10 @@ static void mqttRebuildTopics() {
     mqttModeCommandTopic = mqttBaseTopic + "/mode/set";
     mqttNegativeStateTopic = mqttBaseTopic + "/negative_random/state";
     mqttNegativeCommandTopic = mqttBaseTopic + "/negative_random/set";
+    mqttApPasswordShowStateTopic = mqttBaseTopic + "/ap_password_show/state";
+    mqttApPasswordShowCommandTopic = mqttBaseTopic + "/ap_password_show/set";
+    mqttApPasswordStateTopic = mqttBaseTopic + "/ap_password/state";
+    mqttApPasswordCommandTopic = mqttBaseTopic + "/ap_password/set";
 }
 
 static const char* mqttModeToString() {
@@ -271,6 +313,21 @@ static void mqttPublishNegativeState() {
     mqttClient.publish(mqttNegativeStateTopic.c_str(), enabled ? "ON" : "OFF", true);
 }
 
+static void mqttPublishApPasswordShowState() {
+    if (!mqttClient.connected()) return;
+    mqttClient.publish(mqttApPasswordShowStateTopic.c_str(), mqttIsApPasswordDisplayEnabled() ? "ON" : "OFF", true);
+}
+
+static void mqttPublishApPasswordState() {
+    if (!mqttClient.connected()) return;
+    if (!mqttIsApPasswordDisplayEnabled()) {
+        mqttClient.publish(mqttApPasswordStateTopic.c_str(), "ukryte", true);
+        return;
+    }
+    String apPassword = mqttGetApPassword();
+    mqttClient.publish(mqttApPasswordStateTopic.c_str(), apPassword.c_str(), true);
+}
+
 static void mqttApplyColor(uint8_t r, uint8_t g, uint8_t b) {
     CRGB newColor(r, g, b);
     animation_color = newColor;
@@ -329,7 +386,6 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
             mqttLoadAnimVisualsFromPrefs(animBrightness, animColor);
             display_setBrightness(animBrightness);
             mqttApplyColor(animColor.r, animColor.g, animColor.b);
-            animation_mode = ANIM_FADE;
             display_mode = DISPLAY_MODE_ANIMATION;
             mqttPublishLampState();
         } else {
@@ -366,6 +422,55 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
 
         mqttApplyFunClockEffectsFromPrefs();
         mqttPublishNegativeState();
+        mqttPublishState();
+        return;
+    }
+
+    if (topicStr == mqttApPasswordShowCommandTopic) {
+        char temp[12];
+        unsigned int copyLen = length < (sizeof(temp) - 1) ? length : (sizeof(temp) - 1);
+        memcpy(temp, payload, copyLen);
+        temp[copyLen] = '\0';
+
+        String requested = String(temp);
+        requested.trim();
+        requested.toUpperCase();
+        bool enabled = (requested == "ON" || requested == "1" || requested == "TRUE");
+        Serial.printf("[MQTT] Pokaz haslo AP command: %s -> %s\n", requested.c_str(), enabled ? "ON" : "OFF");
+        mqttApPasswordVisible = enabled;
+
+        Preferences prefs;
+        if (prefs.begin("wifi", false)) {
+            prefs.putUChar("mqttShowApPassword", enabled ? 1 : 0);
+            prefs.end();
+        }
+
+        mqttPublishApPasswordShowState();
+        mqttPublishApPasswordState();
+        mqttPublishState();
+        return;
+    }
+
+    if (topicStr == mqttApPasswordCommandTopic) {
+        char temp[96];
+        unsigned int copyLen = length < (sizeof(temp) - 1) ? length : (sizeof(temp) - 1);
+        memcpy(temp, payload, copyLen);
+        temp[copyLen] = '\0';
+
+        String requested = String(temp);
+        requested.trim();
+
+        if (requested.length() >= 8 && requested.length() <= 63) {
+            mqttApPasswordCached = requested;
+            Preferences prefs;
+            if (prefs.begin("wifi", false)) {
+                prefs.putString("apPassword", requested);
+                prefs.end();
+            }
+            Serial.println("[MQTT] AP haslo zapisane z encji tekstowej (aktywne po restarcie)");
+        }
+
+        mqttPublishApPasswordState();
         mqttPublishState();
         return;
     }
@@ -541,6 +646,8 @@ static void mqttPublishDiscoveryCleanup() {
     mqttClient.publish((discoveryBase + "/number/" + mqttDeviceId + "_lamp_brightness/config").c_str(), "", true);
     mqttClient.publish((discoveryBase + "/text/" + mqttDeviceId + "_lamp_color_hex/config").c_str(), "", true);
     mqttClient.publish((discoveryBase + "/switch/" + mqttDeviceId + "_lamp_mode/config").c_str(), "", true);
+    mqttClient.publish((discoveryBase + "/sensor/" + mqttDeviceId + "_ap_password/config").c_str(), "", true);
+    mqttClient.publish((discoveryBase + "/text/" + mqttDeviceId + "_ap_password/config").c_str(), "", true);
 }
 
 static void mqttPublishDiscovery() {
@@ -756,6 +863,60 @@ static void mqttPublishDiscovery() {
         mqttClient.publish(topic.c_str(), payload.c_str(), true);
     }
 
+    {
+        String topic = discoveryBase + "/switch/" + mqttDeviceId + "_ap_password_show/config";
+        StaticJsonDocument<768> doc;
+        doc["name"] = "LED Matrix Pokaz haslo AP";
+        doc["unique_id"] = mqttDeviceId + "_ap_password_show";
+        doc["command_topic"] = mqttApPasswordShowCommandTopic;
+        doc["state_topic"] = mqttApPasswordShowStateTopic;
+        doc["payload_on"] = "ON";
+        doc["payload_off"] = "OFF";
+        doc["state_on"] = "ON";
+        doc["state_off"] = "OFF";
+        doc["availability_topic"] = mqttAvailabilityTopic;
+        doc["enabled_by_default"] = true;
+        doc["icon"] = "mdi:eye-outline";
+
+        JsonObject dev = doc.createNestedObject("dev");
+        JsonArray ids = dev.createNestedArray("ids");
+        ids.add(mqttDeviceId);
+        dev["name"] = "LED Matrix Clock";
+        dev["mdl"] = "ESP32-S3 N16R8";
+        dev["mf"] = "DIY";
+
+        String payload;
+        serializeJson(doc, payload);
+        mqttClient.publish(topic.c_str(), payload.c_str(), true);
+    }
+
+    {
+        String topic = discoveryBase + "/text/" + mqttDeviceId + "_ap_password_text/config";
+        StaticJsonDocument<768> doc;
+        doc["name"] = "LED Matrix Haslo AP";
+        doc["unique_id"] = mqttDeviceId + "_ap_password_text";
+        doc["command_topic"] = mqttApPasswordCommandTopic;
+        doc["state_topic"] = mqttApPasswordStateTopic;
+        doc["availability_topic"] = mqttAvailabilityTopic;
+        doc["enabled_by_default"] = true;
+        doc["entity_category"] = "config";
+        doc["mode"] = "text";
+        doc["min"] = 8;
+        doc["max"] = 63;
+        doc["icon"] = "mdi:key-variant";
+
+        JsonObject dev = doc.createNestedObject("dev");
+        JsonArray ids = dev.createNestedArray("ids");
+        ids.add(mqttDeviceId);
+        dev["name"] = "LED Matrix Clock";
+        dev["mdl"] = "ESP32-S3 N16R8";
+        dev["mf"] = "DIY";
+
+        String payload;
+        serializeJson(doc, payload);
+        mqttClient.publish(topic.c_str(), payload.c_str(), true);
+    }
+
     mqttDiscoveryPublished = true;
 }
 
@@ -765,6 +926,7 @@ void mqtt_manager_begin() {
     mqttClient.setCallback(mqttOnMessage);
     mqttRebuildTopics();
     mqttLoadLampConfigIfNeeded();
+    mqttLoadApPasswordConfig();
 }
 
 void mqtt_manager_configure(bool enabled,
@@ -836,12 +998,16 @@ void mqtt_manager_loop() {
         mqttPublishLampState();
         mqttPublishModeState();
         mqttPublishNegativeState();
+        mqttPublishApPasswordShowState();
+        mqttPublishApPasswordState();
         mqttClient.subscribe(mqttLightCommandTopic.c_str());
         mqttClient.subscribe(mqttLampCommandTopic.c_str());
         mqttClient.subscribe(mqttBrightnessCommandTopic.c_str());
         mqttClient.subscribe(mqttColorCommandTopic.c_str());
         mqttClient.subscribe(mqttModeCommandTopic.c_str());
         mqttClient.subscribe(mqttNegativeCommandTopic.c_str());
+        mqttClient.subscribe(mqttApPasswordShowCommandTopic.c_str());
+        mqttClient.subscribe(mqttApPasswordCommandTopic.c_str());
         mqttPublishExtraStates();
         mqttLastStatePublishMs = now;
     }
@@ -858,6 +1024,8 @@ void mqtt_manager_loop() {
         mqttPublishLampState();
         mqttPublishModeState();
         mqttPublishNegativeState();
+        mqttPublishApPasswordShowState();
+        mqttPublishApPasswordState();
         mqttPublishExtraStates();
         mqttLastStatePublishMs = now;
     }
@@ -871,6 +1039,8 @@ void mqtt_manager_publish_now() {
     mqttPublishLampState();
     mqttPublishModeState();
     mqttPublishNegativeState();
+    mqttPublishApPasswordShowState();
+    mqttPublishApPasswordState();
     mqttPublishExtraStates();
 }
 

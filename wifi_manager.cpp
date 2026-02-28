@@ -353,7 +353,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <div class='i'><strong>OTA:</strong> <span id='sys-ota' class='pill'>--</span></div>
 <div class='i'><strong>RAM:</strong> <span id='sys-ram' class='pill'>--</span></div>
 </div>
-<button onclick='location.reload()'>R</button>
+<button onclick='location.reload()'>Refresh</button>
 <button class='d' onclick='restartDevice()'>Restart urządzenia</button>
 </div>
 
@@ -481,6 +481,8 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <input type='text' name='ssid' id='ssid-input'>
 <label>Hasło</label>
 <input type='password' name='password' id='password-input'>
+<label>Hasło AP / logowania WWW</label>
+<input type='password' name='apPassword' id='apPassword-input' minlength='8' maxlength='63' placeholder='min. 8 znaków'>
 <label>IP</label>
 <input type='text' name='staticIP' id='staticIP-input'>
 <label>GW</label>
@@ -768,6 +770,7 @@ fetch('/api/ntp-config').then(r=>r.json()).catch(()=>({}))
 ]).then(([net,cfg,ntp])=>{
 document.getElementById('ssid-input').value=cfg.ssid||'';
 document.getElementById('password-input').value=cfg.password||'';
+document.getElementById('apPassword-input').value=cfg.apPassword||'';
 // Jeśli DHCP włączony - pokazuj aktualny IP, jeśli wyłączony - static IP
 const useDhcp=!net.useStaticIP;
 document.getElementById('dhcp-input').checked=useDhcp;
@@ -1028,7 +1031,28 @@ if(sysRam){sysRam.textContent=(d.heap||'--')+' B';sysRam.classList.add('ok');sys
 </html>
 )HTML";
 
-WifiManager::WifiManager() : server(nullptr), lastReconnectAttempt(0), apEnabled(false) {}
+WifiManager::WifiManager() : server(nullptr), lastReconnectAttempt(0), apEnabled(false), apPassword(WIFI_AP_PASSWORD) {}
+
+void WifiManager::loadApPassword() {
+    String stored = preferences.getString("apPassword", WIFI_AP_PASSWORD);
+    stored.trim();
+    if (stored.length() < 8 || stored.length() > 63) {
+        stored = WIFI_AP_PASSWORD;
+        preferences.putString("apPassword", stored);
+    }
+    apPassword = stored;
+    Serial.print("[WiFi] AP/WWW haslo: ");
+    Serial.println(apPassword);
+}
+
+bool WifiManager::ensureAuthenticated() {
+    if (!server) return false;
+    if (server->authenticate("admin", apPassword.c_str())) {
+        return true;
+    }
+    server->requestAuthentication(BASIC_AUTH, "LED Matrix", "Podaj haslo AP (uzytkownik: admin)");
+    return false;
+}
 
 void WifiManager::begin(WebServer* webServer) {
     preferences.begin("wifi", false);
@@ -1182,7 +1206,7 @@ bool WifiManager::isAPMode() {
 void WifiManager::setupAP() {
     Serial.println("[WiFi] Setup AP (Access Point)");
     // WiFi.mode() już ustawiony w begin()
-    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
+    WiFi.softAP(WIFI_AP_SSID, apPassword.c_str());
     WiFi.softAPConfig(WIFI_AP_IP, WIFI_AP_IP, IPAddress(255,255,255,0));
     Serial.print("[WiFi] AP IP: ");
     Serial.println(WiFi.softAPIP());
@@ -1201,48 +1225,60 @@ void WifiManager::setupStation() {
 
 void WifiManager::setupWebServer(WebServer* webServer) {
     server = webServer;
-    server->on("/", [this]() { handleRoot(); });
-    server->on("/save", HTTP_POST, [this]() { handleSave(); });
-    server->on("/save-time", HTTP_POST, [this]() { handleSaveTime(); });
-    server->on("/save-animations", HTTP_POST, [this]() { handleSaveAnimations(); });
-    server->on("/save-schedule", HTTP_POST, [this]() { handleSaveSchedule(); });
-    server->on("/resetwifi", [this]() { handleResetWifi(); });
-    server->on("/forget-wifi", HTTP_POST, [this]() { handleForgetWifi(); });
-    server->on("/restart", [this]() { handleRestart(); });
-    server->on("/api/status", [this]() { handleApiStatus(); });
-    server->on("/api/quotes", [this]() { handleApiQuotes(); });
-    server->on("/api/animations-config", [this]() { handleApiAnimationsConfig(); });
-    server->on("/api/schedule", [this]() { handleApiSchedule(); });
-    server->on("/api/quotes-list", [this]() { handleApiQuotesList(); });
-    server->on("/api/ntp-config", [this]() { handleApiNtpConfig(); });
-    server->on("/api/network-info", [this]() { handleApiNetworkInfo(); });
-    server->on("/api/wifi-scan", [this]() { handleApiWifiScan(); });
-    server->on("/api/mqtt-config", [this]() { handleApiMqttConfig(); });
-    server->on("/api/lamp-config", [this]() { handleApiLampConfig(); });
-    server->on("/api/ping", [this]() { server->send(200, "text/plain", "pong"); });
-    server->on("/save-quote", HTTP_POST, [this]() { handleSaveQuote(); });
-    server->on("/save-mqtt", HTTP_POST, [this]() { handleSaveMqtt(); });
-    server->on("/save-lamp", HTTP_POST, [this]() { handleSaveLampConfig(); });
-    server->on("/trigger-quote", HTTP_POST, [this]() { handleTriggerQuote(); });
-    server->on("/trigger-clock-anim", HTTP_POST, [this]() { handleTriggerClockAnimation(); });
-    server->on("/trigger-clock-mirror", HTTP_POST, [this]() { handleTriggerClockMirror(); });
-    server->on("/trigger-clock-rainbow", HTTP_POST, [this]() { handleTriggerClockRainbow(); });
-    server->on("/trigger-clock-hours-slide", HTTP_POST, [this]() { handleTriggerClockHoursSlide(); });
-    server->on("/trigger-clock-matrix-font", HTTP_POST, [this]() { handleTriggerClockMatrixFont(); });
-    server->on("/trigger-clock-upside-down", HTTP_POST, [this]() { handleTriggerClockUpsideDown(); });
-    server->on("/trigger-clock-rotate-180", HTTP_POST, [this]() { handleTriggerClockRotate180(); });
-    server->on("/trigger-clock-full-rotate", HTTP_POST, [this]() { handleTriggerClockFullRotate(); });
-    server->on("/trigger-clock-middle-swap", HTTP_POST, [this]() { handleTriggerClockMiddleSwap(); });
-    server->on("/delete-quote", HTTP_POST, [this]() { handleDeleteQuote(); });
-    server->on("/api/quotes-export", [this]() { handleExportQuotes(); });
-    server->on("/import-quotes", HTTP_POST, [this]() { handleImportQuotes(); });
-    server->on("/save-quotes-enabled", HTTP_POST, [this]() { handleSaveQuotesEnabled(); });
-    server->on("/api/quotes-config", [this]() { handleApiQuotesConfig(); });
-    server->on("/api/ota-status", [this]() { handleApiOtaStatus(); });
-    server->on("/api/colors-palette", [this]() { handleApiColorsPalette(); });
-    server->on("/ota-upload", HTTP_POST, [this]() { 
-    }, [this]() { 
-        handleOtaUpload(); 
+    auto authWrap = [this](void (WifiManager::*handler)()) {
+        return [this, handler]() {
+            if (!ensureAuthenticated()) return;
+            (this->*handler)();
+        };
+    };
+
+    server->on("/", authWrap(&WifiManager::handleRoot));
+    server->on("/save", HTTP_POST, authWrap(&WifiManager::handleSave));
+    server->on("/save-time", HTTP_POST, authWrap(&WifiManager::handleSaveTime));
+    server->on("/save-animations", HTTP_POST, authWrap(&WifiManager::handleSaveAnimations));
+    server->on("/save-schedule", HTTP_POST, authWrap(&WifiManager::handleSaveSchedule));
+    server->on("/resetwifi", authWrap(&WifiManager::handleResetWifi));
+    server->on("/forget-wifi", HTTP_POST, authWrap(&WifiManager::handleForgetWifi));
+    server->on("/restart", authWrap(&WifiManager::handleRestart));
+    server->on("/api/status", authWrap(&WifiManager::handleApiStatus));
+    server->on("/api/quotes", authWrap(&WifiManager::handleApiQuotes));
+    server->on("/api/animations-config", authWrap(&WifiManager::handleApiAnimationsConfig));
+    server->on("/api/schedule", authWrap(&WifiManager::handleApiSchedule));
+    server->on("/api/quotes-list", authWrap(&WifiManager::handleApiQuotesList));
+    server->on("/api/ntp-config", authWrap(&WifiManager::handleApiNtpConfig));
+    server->on("/api/network-info", authWrap(&WifiManager::handleApiNetworkInfo));
+    server->on("/api/wifi-scan", authWrap(&WifiManager::handleApiWifiScan));
+    server->on("/api/mqtt-config", authWrap(&WifiManager::handleApiMqttConfig));
+    server->on("/api/lamp-config", authWrap(&WifiManager::handleApiLampConfig));
+    server->on("/api/ping", [this]() {
+        if (!ensureAuthenticated()) return;
+        server->send(200, "text/plain", "pong");
+    });
+    server->on("/save-quote", HTTP_POST, authWrap(&WifiManager::handleSaveQuote));
+    server->on("/save-mqtt", HTTP_POST, authWrap(&WifiManager::handleSaveMqtt));
+    server->on("/save-lamp", HTTP_POST, authWrap(&WifiManager::handleSaveLampConfig));
+    server->on("/trigger-quote", HTTP_POST, authWrap(&WifiManager::handleTriggerQuote));
+    server->on("/trigger-clock-anim", HTTP_POST, authWrap(&WifiManager::handleTriggerClockAnimation));
+    server->on("/trigger-clock-mirror", HTTP_POST, authWrap(&WifiManager::handleTriggerClockMirror));
+    server->on("/trigger-clock-rainbow", HTTP_POST, authWrap(&WifiManager::handleTriggerClockRainbow));
+    server->on("/trigger-clock-hours-slide", HTTP_POST, authWrap(&WifiManager::handleTriggerClockHoursSlide));
+    server->on("/trigger-clock-matrix-font", HTTP_POST, authWrap(&WifiManager::handleTriggerClockMatrixFont));
+    server->on("/trigger-clock-upside-down", HTTP_POST, authWrap(&WifiManager::handleTriggerClockUpsideDown));
+    server->on("/trigger-clock-rotate-180", HTTP_POST, authWrap(&WifiManager::handleTriggerClockRotate180));
+    server->on("/trigger-clock-full-rotate", HTTP_POST, authWrap(&WifiManager::handleTriggerClockFullRotate));
+    server->on("/trigger-clock-middle-swap", HTTP_POST, authWrap(&WifiManager::handleTriggerClockMiddleSwap));
+    server->on("/delete-quote", HTTP_POST, authWrap(&WifiManager::handleDeleteQuote));
+    server->on("/api/quotes-export", authWrap(&WifiManager::handleExportQuotes));
+    server->on("/import-quotes", HTTP_POST, authWrap(&WifiManager::handleImportQuotes));
+    server->on("/save-quotes-enabled", HTTP_POST, authWrap(&WifiManager::handleSaveQuotesEnabled));
+    server->on("/api/quotes-config", authWrap(&WifiManager::handleApiQuotesConfig));
+    server->on("/api/ota-status", authWrap(&WifiManager::handleApiOtaStatus));
+    server->on("/api/colors-palette", authWrap(&WifiManager::handleApiColorsPalette));
+    server->on("/ota-upload", HTTP_POST, [this]() {
+        if (!ensureAuthenticated()) return;
+    }, [this]() {
+        if (!ensureAuthenticated()) return;
+        handleOtaUpload();
     });
     server->begin();
 }
@@ -1267,6 +1303,23 @@ void WifiManager::handleSave() {
     // Pobierz DHCP checkbox - jeśli nie ma, oznacza że użytkownik USE Static IP
     String dhcpValue = server->arg("dhcp");
     String useStatic = (dhcpValue == "on" || dhcpValue == "") ? "0" : "1"; // Empty = DHCP disabled = use static
+    String requestedApPassword = server->arg("apPassword");
+    requestedApPassword.trim();
+    if (requestedApPassword.length() == 0) {
+        requestedApPassword = apPassword;
+    }
+
+    if (requestedApPassword.length() < 8 || requestedApPassword.length() > 63) {
+        server->send(400, "text/html", "<html><body><h1>Błąd: hasło AP musi mieć 8-63 znaki.</h1></body></html>");
+        return;
+    }
+
+    if (requestedApPassword != apPassword) {
+        apPassword = requestedApPassword;
+        preferences.putString("apPassword", apPassword);
+        Serial.print("[WiFi] AP/WWW haslo zmienione na: ");
+        Serial.println(apPassword);
+    }
     
     // Jeśli nie ma połączenia STA - zapisz tylko WiFi i restart
     if (WiFi.status() != WL_CONNECTED) {
@@ -1283,6 +1336,8 @@ void WifiManager::handleSave() {
         
         Serial.print("[WiFi] DHCP: ");
         Serial.print(dhcpValue.c_str());
+        Serial.print(" AP haslo: ");
+        Serial.print(apPassword);
         Serial.print(" Static IP: ");
         Serial.print(server->arg("staticIP").c_str());
         Serial.print(" Gateway: ");
@@ -1360,6 +1415,7 @@ void WifiManager::restartESP() {
 void WifiManager::loadConfig() {
     config.ssid = preferences.getString("ssid", "");
     config.password = preferences.getString("password", "");
+    loadApPassword();
 }
 
 void WifiManager::saveConfig(const WifiConfig& cfg) {
@@ -1460,7 +1516,8 @@ void WifiManager::handleApiQuotes() {
     // Zwraca aktualne wartości WiFi w JSON
     String json = "{";
     json += "\"ssid\":\"" + String(config.ssid.c_str()) + "\",";
-    json += "\"password\":\"" + String(config.password.c_str()) + "\"";
+    json += "\"password\":\"" + String(config.password.c_str()) + "\",";
+    json += "\"apPassword\":\"" + apPassword + "\"";
     json += "}";
     
     server->send(200, "application/json", json);

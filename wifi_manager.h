@@ -67,6 +67,7 @@ private:
     void handleTriggerClockFullRotate();
     void handleTriggerClockMiddleSwap();
     void handleTriggerClockPileup();
+    void handleTriggerClockNegative();
     void handleTriggerHaEntity();
     void handleDeleteQuote();
     void handleExportQuotes();

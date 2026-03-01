@@ -72,6 +72,7 @@ void display_triggerFunClockRotate180();
 void display_triggerFunClockFullRotate();
 void display_triggerFunClockMiddleSwap();
 void display_triggerFunClockPileup();
+void display_triggerFunClockNegative();
 void display_setFunClockIntervalSeconds(uint16_t seconds);
 void display_resetFunClockNextEffectTimer();
 uint32_t display_getFunClockCompletedEffectsCount();

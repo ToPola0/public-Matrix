@@ -510,6 +510,11 @@ void display_triggerFunClockPileup() {
     funClockStartPileup(millis());
 }
 
+void display_triggerFunClockNegative() {
+    funClockInitIfNeeded();
+    funClockStartNegative(millis());
+}
+
 void display_setFunClockIntervalSeconds(uint16_t seconds) {
     funClockIntervalSeconds = constrain(seconds, 10, 3600);
     uint32_t now = millis();

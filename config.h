@@ -39,6 +39,9 @@
 #define OTA_PORT 3232
 #define OTA_PASSWORD "12345678"
 
+// Build-time logs: 1 = verbose debug logs, 0 = only essential logs
+#define LOG_DEBUG_ENABLED 0
+
 // Buzzer
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
 #define BUZZER_PIN    18

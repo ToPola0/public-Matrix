@@ -36,8 +36,6 @@ static String mqttLampStateTopic;
 static String mqttLampCommandTopic;
 static String mqttModeStateTopic;
 static String mqttModeCommandTopic;
-static String mqttNegativeStateTopic;
-static String mqttNegativeCommandTopic;
 static String mqttApPasswordShowStateTopic;
 static String mqttApPasswordShowCommandTopic;
 static String mqttApPasswordStateTopic;
@@ -75,7 +73,6 @@ static void mqttPublishLightState();
 static void mqttPublishExtraStates();
 static void mqttPublishLampState();
 static void mqttPublishModeState();
-static void mqttPublishNegativeState();
 static void mqttPublishApPasswordShowState();
 static void mqttPublishApPasswordState();
 static void mqttPublishDiscoveryCleanup();
@@ -389,8 +386,6 @@ static void mqttRebuildTopics() {
     mqttLampCommandTopic = mqttBaseTopic + "/lamp/set";
     mqttModeStateTopic = mqttBaseTopic + "/mode/state";
     mqttModeCommandTopic = mqttBaseTopic + "/mode/set";
-    mqttNegativeStateTopic = mqttBaseTopic + "/negative_random/state";
-    mqttNegativeCommandTopic = mqttBaseTopic + "/negative_random/set";
     mqttApPasswordShowStateTopic = mqttBaseTopic + "/ap_password_show/state";
     mqttApPasswordShowCommandTopic = mqttBaseTopic + "/ap_password_show/set";
     mqttApPasswordStateTopic = mqttBaseTopic + "/ap_password/state";
@@ -471,15 +466,6 @@ static void mqttPublishLampState() {
 static void mqttPublishModeState() {
     if (!mqttClient.connected()) return;
     mqttClient.publish(mqttModeStateTopic.c_str(), mqttModeToString(), true);
-}
-
-static void mqttPublishNegativeState() {
-    if (!mqttClient.connected()) return;
-    Preferences prefs;
-    prefs.begin("wifi", true);
-    bool enabled = prefs.getUChar("displayNegative", 0) == 1;
-    prefs.end();
-    mqttClient.publish(mqttNegativeStateTopic.c_str(), enabled ? "ON" : "OFF", true);
 }
 
 static void mqttPublishApPasswordShowState() {
@@ -570,28 +556,6 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
         mqttPublishModeState();
         mqttPublishLightState();
         mqttPublishExtraStates();
-        mqttPublishState();
-        return;
-    }
-
-    if (topicStr == mqttNegativeCommandTopic) {
-        char temp[12];
-        unsigned int copyLen = length < (sizeof(temp) - 1) ? length : (sizeof(temp) - 1);
-        memcpy(temp, payload, copyLen);
-        temp[copyLen] = '\0';
-
-        String requested = String(temp);
-        requested.trim();
-        requested.toUpperCase();
-        bool enabled = (requested == "ON" || requested == "1" || requested == "TRUE");
-
-        Preferences prefs;
-        prefs.begin("wifi", false);
-        prefs.putUChar("displayNegative", enabled ? 1 : 0);
-        prefs.end();
-
-        mqttApplyFunClockEffectsFromPrefs();
-        mqttPublishNegativeState();
         mqttPublishState();
         return;
     }
@@ -1020,32 +984,6 @@ static void mqttPublishDiscovery() {
     }
 
     {
-        String topic = discoveryBase + "/switch/" + mqttDeviceId + "_negative_random/config";
-        StaticJsonDocument<768> doc;
-        doc["name"] = "LED Matrix Negatyw (losowanie)";
-        doc["uniq_id"] = mqttDeviceId + "_negative_random";
-        doc["cmd_t"] = mqttNegativeCommandTopic;
-        doc["stat_t"] = mqttNegativeStateTopic;
-        doc["pl_on"] = "ON";
-        doc["pl_off"] = "OFF";
-        doc["stat_on"] = "ON";
-        doc["stat_off"] = "OFF";
-        doc["avty_t"] = mqttAvailabilityTopic;
-        doc["ic"] = "mdi:invert-colors";
-
-        JsonObject dev = doc.createNestedObject("dev");
-        JsonArray ids = dev.createNestedArray("ids");
-        ids.add(mqttDeviceId);
-        dev["name"] = "LED Matrix Clock";
-        dev["mdl"] = "ESP32-S3 N16R8";
-        dev["mf"] = "DIY";
-
-        String payload;
-        serializeJson(doc, payload);
-        mqttClient.publish(topic.c_str(), payload.c_str(), true);
-    }
-
-    {
         String topic = discoveryBase + "/switch/" + mqttDeviceId + "_ap_password_show/config";
         StaticJsonDocument<768> doc;
         doc["name"] = "LED Matrix Pokaz haslo AP";
@@ -1180,7 +1118,6 @@ void mqtt_manager_loop() {
         mqttPublishLightState();
         mqttPublishLampState();
         mqttPublishModeState();
-        mqttPublishNegativeState();
         mqttPublishApPasswordShowState();
         mqttPublishApPasswordState();
         mqttClient.subscribe(mqttLightCommandTopic.c_str());
@@ -1188,7 +1125,6 @@ void mqtt_manager_loop() {
         mqttClient.subscribe(mqttBrightnessCommandTopic.c_str());
         mqttClient.subscribe(mqttColorCommandTopic.c_str());
         mqttClient.subscribe(mqttModeCommandTopic.c_str());
-        mqttClient.subscribe(mqttNegativeCommandTopic.c_str());
         mqttClient.subscribe(mqttApPasswordShowCommandTopic.c_str());
         mqttClient.subscribe(mqttApPasswordCommandTopic.c_str());
         mqttSubscribeHaEntityTopics();
@@ -1207,7 +1143,6 @@ void mqtt_manager_loop() {
         mqttPublishLightState();
         mqttPublishLampState();
         mqttPublishModeState();
-        mqttPublishNegativeState();
         mqttPublishApPasswordShowState();
         mqttPublishApPasswordState();
         mqttPublishExtraStates();
@@ -1222,7 +1157,6 @@ void mqtt_manager_publish_now() {
     mqttPublishLightState();
     mqttPublishLampState();
     mqttPublishModeState();
-    mqttPublishNegativeState();
     mqttPublishApPasswordShowState();
     mqttPublishApPasswordState();
     mqttPublishExtraStates();

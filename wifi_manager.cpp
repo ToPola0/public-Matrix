@@ -298,6 +298,8 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 .tb.a{background:#38506a;border-color:#5a7a99;color:#fff}
 .tc{display:none;padding:10px;background:#111923;border:1px solid #2c3a4a;border-radius:10px;margin-bottom:8px}
 .tc.a{display:block}
+.anim-test-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:6px}
+.anim-test-grid button{width:auto;margin:0;padding:6px 7px;font-size:.82em}
 .fg{margin:2px 0}
 .d{background:#582626;border-color:#8b3a3a}
 .d:hover{background:#6c2f2f;border-color:#a84848}
@@ -350,7 +352,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <div class='i'><strong>RSSI:</strong> <span id='rssi-info'>--</span></div>
 <div class='i'><strong>Czas:</strong> <span id='current-time'>--</span></div>
 <div class='i'><strong>Uptime:</strong> <span id='uptime'>--</span></div>
-<div class='i'><strong>RAM:</strong> <span id='heap-info'>--</span></div>
+<div class='i'><strong>Flash:</strong> <span id='flash-info'>--</span></div>
 <div class='sys'>
 <div class='i'><strong>WiFi:</strong> <span id='sys-wifi' class='pill'>--</span></div>
 <div class='i'><strong>MQTT:</strong> <span id='sys-mqtt' class='pill'>--</span></div>
@@ -407,19 +409,21 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <label><input type='checkbox' name='fxQuotes' id='fxQuotes' checked style='width:auto' onchange='saveQuotesToggle()'> Cytaty</label>
 <label>Kolor</label>
 <input type='color' name='animColor' id='ac' value='#FF0000' oninput='saveAnimationVisuals()' style='height:40px'>
-<hex-color-picker id='acp' color='#FF0000' style='display:block;width:100%;height:160px'></hex-color-picker>
-<button type='button' onclick='triggerClockAnimTest()' style='background:#1976d2;margin-top:4px;'>Test animacji cyfr</button>
-<button type='button' onclick='triggerClockMirrorTest()' style='background:#444;margin-top:4px;'>Test lustra</button>
-<button type='button' onclick='triggerClockRainbowTest()' style='background:#6a1b9a;margin-top:4px;'>Test animacji tęczy</button>
-<button type='button' onclick='triggerClockHoursSlideTest()' style='background:#8d6e63;margin-top:4px;'>Test wyjazdu/wjazdu godzin</button>
-<button type='button' onclick='triggerClockMatrixFontTest()' style='background:#2e7d32;margin-top:4px;'>Test Predator GLYPH</button>
-<button type='button' onclick='triggerClockMatrixSidewaysTest()' style='background:#1b5e20;margin-top:4px;'>Test Matrix (2 rzędy, bokiem)</button>
-<button type='button' onclick='triggerClockUpsideDownTest()' style='background:#455a64;margin-top:4px;'>Test do góry nogami</button>
-<button type='button' onclick='triggerClockRotate180Test()' style='background:#5d4037;margin-top:4px;'>Test obrotu 180°</button>
-<button type='button' onclick='triggerClockFullRotateTest()' style='background:#00695c;margin-top:4px;'>Test pełnego obrotu</button>
-<button type='button' onclick='triggerClockMiddleSwapTest()' style='background:#3949ab;margin-top:4px;'>Test przejazdu wszystkich cyfr</button>
-<button type='button' onclick='triggerClockPileupTest()' style='background:#4e342e;margin-top:4px;'>Test karambolu cyfr</button>
-<button type='button' onclick='toggleNegativeNow()' style='background:#455a64;margin-top:4px;'>Przełącz negatyw</button>
+<hex-color-picker id='acp' color='#FF0000' style='display:block;width:100%;height:72px;margin-bottom:4px'></hex-color-picker>
+<div class='anim-test-grid'>
+<button type='button' onclick='triggerClockAnimTest()' style='background:#1976d2;'>Test animacji cyfr</button>
+<button type='button' onclick='triggerClockMirrorTest()' style='background:#444;'>Test lustra</button>
+<button type='button' onclick='triggerClockRainbowTest()' style='background:#6a1b9a;'>Test animacji tęczy</button>
+<button type='button' onclick='triggerClockHoursSlideTest()' style='background:#8d6e63;'>Test wyjazdu/wjazdu godzin</button>
+<button type='button' onclick='triggerClockMatrixFontTest()' style='background:#2e7d32;'>Test Predator GLYPH</button>
+<button type='button' onclick='triggerClockMatrixSidewaysTest()' style='background:#1b5e20;'>Test Matrix (2 rzędy, bokiem)</button>
+<button type='button' onclick='triggerClockUpsideDownTest()' style='background:#455a64;'>Test do góry nogami</button>
+<button type='button' onclick='triggerClockRotate180Test()' style='background:#5d4037;'>Test obrotu 180°</button>
+<button type='button' onclick='triggerClockFullRotateTest()' style='background:#00695c;'>Test pełnego obrotu</button>
+<button type='button' onclick='triggerClockMiddleSwapTest()' style='background:#3949ab;'>Test przejazdu wszystkich cyfr</button>
+<button type='button' onclick='triggerClockPileupTest()' style='background:#4e342e;'>Test karambolu cyfr</button>
+<button type='button' onclick='triggerClockNegativeTest()' style='background:#455a64;'>Test negatywu</button>
+</div>
 <div id='anim-test-status' class='i' style='margin-top:4px;'>Gotowy do testów</div>
 </form>
 </div>
@@ -674,12 +678,14 @@ setAnimTestStatus('❌ '+(d.error||'Błąd efektu karambolu'),false);
 }
 }).catch(e=>{console.log('Error:',e);setAnimTestStatus('❌ Błąd połączenia',false)});
 }
-function toggleNegativeNow(){
-const neg=document.getElementById('displayNegative');
-if(!neg)return;
-neg.checked=!neg.checked;
-saveNegativeToggle();
-setAnimTestStatus(neg.checked?'✓ Negatyw dodany do losowania':'✓ Negatyw usunięty z losowania',true);
+function triggerClockNegativeTest(){
+fetch('/trigger-clock-negative',{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+setAnimTestStatus('✓ Efekt negatywu uruchomiony',true);
+}else{
+setAnimTestStatus('❌ '+(d.error||'Błąd efektu negatywu'),false);
+}
+}).catch(e=>{console.log('Error:',e);setAnimTestStatus('❌ Błąd połączenia',false)});
 }
 function setAnimTestStatus(text,ok){
 const el=document.getElementById('anim-test-status');
@@ -1077,7 +1083,22 @@ document.getElementById('ssid-info').textContent=d.ssid||'--';
 document.getElementById('rssi-info').textContent=d.rssi||'--';
 document.getElementById('current-time').textContent=d.time||'--:--:--';
 document.getElementById('uptime').textContent=d.uptime||'--';
-document.getElementById('heap-info').textContent=d.heap||'--';
+const flashInfo=document.getElementById('flash-info');
+if(flashInfo){
+const topPct=(typeof d.flashUsedPercent==='number')?Math.max(0,Math.min(100,d.flashUsedPercent)):null;
+const topChipPct=(typeof d.flashChipUsedPercent==='number')?Math.max(0,Math.min(100,d.flashChipUsedPercent)):null;
+if(topPct===null && topChipPct===null){
+flashInfo.textContent='--';
+}else{
+const topSketchUsed=(topPct===null)?null:topPct;
+const topSketchFree=(topPct===null)?null:(100-topPct);
+const topChipUsed=(topChipPct===null)?null:topChipPct;
+const topChipFree=(topChipPct===null)?null:(100-topChipPct);
+const topSketchText=(topSketchUsed===null)?'Szkic --':'Szkic wolne '+topSketchFree+'% (zajęte '+topSketchUsed+'%)';
+const topChipText=(topChipUsed===null)?'Kość --':'Kość wolne '+topChipFree+'% (zajęte '+topChipUsed+'%)';
+flashInfo.textContent=topSketchText+' · '+topChipText;
+}
+}
 document.getElementById('time-display').textContent=d.time||'--:--:--';
 const wifiOk=(d.connected===true);
 const mqttOk=((d.mqtt||'').toLowerCase()==='połączony');
@@ -1353,6 +1374,7 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/trigger-clock-full-rotate", HTTP_POST, authWrap(&WifiManager::handleTriggerClockFullRotate));
     server->on("/trigger-clock-middle-swap", HTTP_POST, authWrap(&WifiManager::handleTriggerClockMiddleSwap));
     server->on("/trigger-clock-pileup", HTTP_POST, authWrap(&WifiManager::handleTriggerClockPileup));
+    server->on("/trigger-clock-negative", HTTP_POST, authWrap(&WifiManager::handleTriggerClockNegative));
     server->on("/delete-quote", HTTP_POST, authWrap(&WifiManager::handleDeleteQuote));
     server->on("/api/quotes-export", authWrap(&WifiManager::handleExportQuotes));
     server->on("/import-quotes", HTTP_POST, authWrap(&WifiManager::handleImportQuotes));
@@ -1620,8 +1642,28 @@ void WifiManager::handleApiStatus() {
     uint8_t h = timeClient.getHours();
     char timeStr[20];
     sprintf(timeStr, "%02u:%02u:%02u", h, timeClient.getMinutes(), timeClient.getSeconds());
+    uint32_t sketchUsed = ESP.getSketchSize();
+    uint32_t sketchTotal = sketchUsed + ESP.getFreeSketchSpace();
+    uint32_t flashChipSize = ESP.getFlashChipSize();
+    uint8_t flashUsedPercent = 0;
+    uint8_t flashChipUsedPercent = 0;
+    if (sketchTotal > 0U) {
+        uint32_t pct = (sketchUsed * 100UL) / sketchTotal;
+        if (pct > 100UL) pct = 100UL;
+        flashUsedPercent = (uint8_t)pct;
+    }
+    if (flashChipSize > 0U) {
+        uint32_t chipPct = (sketchUsed * 100UL) / flashChipSize;
+        if (chipPct > 100UL) chipPct = 100UL;
+        flashChipUsedPercent = (uint8_t)chipPct;
+    }
     json += "\"time\":\"" + String(timeStr) + "\",";
     json += "\"heap\":" + String(ESP.getFreeHeap()) + ",";
+    json += "\"flashUsedPercent\":" + String(flashUsedPercent) + ",";
+    json += "\"flashUsedBytes\":" + String(sketchUsed) + ",";
+    json += "\"flashTotalBytes\":" + String(sketchTotal) + ",";
+    json += "\"flashChipUsedPercent\":" + String(flashChipUsedPercent) + ",";
+    json += "\"flashChipBytes\":" + String(flashChipSize) + ",";
     json += "\"firmware\":\"1.0.0\",";
     json += "\"mqtt\":\"" + mqtt_manager_getStatus() + "\",";
     json += "\"ntp\":\"OK\",";
@@ -1959,6 +2001,13 @@ void WifiManager::handleTriggerClockPileup() {
     display_mode = DISPLAY_MODE_CLOCK;
     display_triggerFunClockPileup();
     Serial.println("[WiFi] Trigger clock pileup test");
+    server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
+}
+
+void WifiManager::handleTriggerClockNegative() {
+    display_mode = DISPLAY_MODE_CLOCK;
+    display_triggerFunClockNegative();
+    Serial.println("[WiFi] Trigger clock negative test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
 }
 

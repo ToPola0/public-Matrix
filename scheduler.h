@@ -9,7 +9,6 @@
 extern unsigned long last_animation_change;      // ostatnia zmiana animacji (ms)
 extern unsigned long last_quote_check;           // ostatnia próba wylosowania cytatu (ms)
 extern uint8_t current_animation_index;          // obecna animacja w rotacji (0-4)
-extern bool scheduled_message_active;            // czy teraz wyświetlana zaplanowana wiadomość?
 extern char current_scheduled_message[128];      // tekst aktualnej zaplanowanej wiadomości
 
 extern unsigned long last_scheduler_minute_check; // ostatnia minuta (do sprawdzania godzinowych zdarzeń)
@@ -25,7 +24,7 @@ void scheduler_loop();  // Wywoływane z main display loop
 
 // Helper functions
 bool shouldRotateAnimation();
-bool shouldShowScheduledMessage(uint8_t& messageIndex);
+bool shouldShowScheduledMessage();
 bool shouldShowRandomQuote();
 
 #endif // SCHEDULER_H

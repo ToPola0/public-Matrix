@@ -65,11 +65,13 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
     bool fxRotate180 = preferences.getUChar("fxRotate180", 1) == 1;
     bool fxFullRotate = preferences.getUChar("fxFullRotate", 1) == 1;
     bool fxMiddleSwap = preferences.getUChar("fxMiddleSwap", 1) == 1;
+    bool fxSplitHalves = preferences.getUChar("fxSplitHalves", 1) == 1;
+    bool fxTetris = preferences.getUChar("fxTetris", 1) == 1;
     bool fxPileup = preferences.getUChar("fxPileup", 1) == 1;
     bool displayLampMode = preferences.getUChar("displayLampMode", 0) == 1;
     bool displayNegative = preferences.getUChar("displayNegative", 0) == 1;
     bool fxQuotes = preferences.getUChar("quotes_enabled", 1) == 1;
-    display_setFunClockEffectsEnabled(fxMove, fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, fxPileup, displayNegative);
+    display_setFunClockEffectsEnabled(fxMove, fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, fxSplitHalves, fxTetris, fxPileup, displayNegative);
     display_setNegative(false);
     display_mode = displayLampMode ? DISPLAY_MODE_LAMP : DISPLAY_MODE_CLOCK;
     mainConfig.schedule.random_quotes_enabled = fxQuotes;
@@ -100,7 +102,7 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
         message_color = parsedLampColor;
     }
 
-    Serial.printf("[WiFi] Startup apply: brightness=%d color=%s lampBrightness=%d lampColor=%s interval=%ds fx=%d%d%d%d%d%d%d%d%d%d%d lamp=%d neg=%d quotes=%d\n",
+    Serial.printf("[WiFi] Startup apply: brightness=%d color=%s lampBrightness=%d lampColor=%s interval=%ds fx=%d%d%d%d%d%d%d%d%d%d%d%d%d lamp=%d neg=%d quotes=%d\n",
         savedBrightness,
         savedColor.c_str(),
         lampBrightness,
@@ -116,6 +118,8 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
         fxRotate180 ? 1 : 0,
         fxFullRotate ? 1 : 0,
         fxMiddleSwap ? 1 : 0,
+        fxSplitHalves ? 1 : 0,
+        fxTetris ? 1 : 0,
         fxPileup ? 1 : 0,
         displayLampMode ? 1 : 0,
         displayNegative ? 1 : 0,
@@ -405,6 +409,8 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <label><input type='checkbox' name='fxRotate180' id='fxRotate180' checked style='width:auto' onchange='saveAnimationSelection()'> Obrót 180°</label>
 <label><input type='checkbox' name='fxFullRotate' id='fxFullRotate' checked style='width:auto' onchange='saveAnimationSelection()'> Pełny obrót w prawo</label>
 <label><input type='checkbox' name='fxMiddleSwap' id='fxMiddleSwap' checked style='width:auto' onchange='saveAnimationSelection()'> Wszystkie cyfry: naprzemienny przejazd</label>
+<label><input type='checkbox' name='fxSplitHalves' id='fxSplitHalves' checked style='width:auto' onchange='saveAnimationSelection()'> Połówki cyfr: prawa w dół, lewa w górę</label>
+<label><input type='checkbox' name='fxTetris' id='fxTetris' checked style='width:auto' onchange='saveAnimationSelection()'> Tetris: cyfry spadają z góry</label>
 <label><input type='checkbox' name='fxPileup' id='fxPileup' checked style='width:auto' onchange='saveAnimationSelection()'> Karambol: cyfry i dwukropki na lewo</label>
 <label><input type='checkbox' name='displayNegative' id='displayNegative' style='width:auto' onchange='saveNegativeToggle()'> Negatyw wyświetlania</label>
 <label><input type='checkbox' name='fxQuotes' id='fxQuotes' checked style='width:auto' onchange='saveQuotesToggle()'> Cytaty</label>
@@ -422,6 +428,8 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button type='button' onclick='triggerClockRotate180Test()' style='background:#5d4037;'>Test obrotu 180°</button>
 <button type='button' onclick='triggerClockFullRotateTest()' style='background:#00695c;'>Test pełnego obrotu</button>
 <button type='button' onclick='triggerClockMiddleSwapTest()' style='background:#3949ab;'>Test przejazdu wszystkich cyfr</button>
+<button type='button' onclick='triggerClockSplitHalvesTest()' style='background:#283593;'>Test połówek cyfr</button>
+<button type='button' onclick='triggerClockTetrisTest()' style='background:#00897b;'>Test Tetris</button>
 <button type='button' onclick='triggerClockPileupTest()' style='background:#4e342e;'>Test karambolu cyfr</button>
 <button type='button' onclick='triggerClockNegativeTest()' style='background:#455a64;'>Test negatywu</button>
 </div>
@@ -670,6 +678,24 @@ setAnimTestStatus('❌ '+(d.error||'Błąd efektu przejazdu wszystkich cyfr'),fa
 }
 }).catch(e=>{console.log('Error:',e);setAnimTestStatus('❌ Błąd połączenia',false)});
 }
+function triggerClockSplitHalvesTest(){
+fetch('/trigger-clock-split-halves',{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+setAnimTestStatus('✓ Efekt połówek cyfr uruchomiony',true);
+}else{
+setAnimTestStatus('❌ '+(d.error||'Błąd efektu połówek cyfr'),false);
+}
+}).catch(e=>{console.log('Error:',e);setAnimTestStatus('❌ Błąd połączenia',false)});
+}
+function triggerClockTetrisTest(){
+fetch('/trigger-clock-tetris',{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+setAnimTestStatus('✓ Efekt Tetris uruchomiony',true);
+}else{
+setAnimTestStatus('❌ '+(d.error||'Błąd efektu Tetris'),false);
+}
+}).catch(e=>{console.log('Error:',e);setAnimTestStatus('❌ Błąd połączenia',false)});
+}
 function triggerClockPileupTest(){
 fetch('/trigger-clock-pileup',{method:'POST'}).then(r=>r.json()).then(d=>{
 if(d.success){
@@ -875,6 +901,8 @@ document.getElementById('fxUpsideDown').checked=(cfg.fxUpsideDown!==false);
 document.getElementById('fxRotate180').checked=(cfg.fxRotate180!==false);
 document.getElementById('fxFullRotate').checked=(cfg.fxFullRotate!==false);
 document.getElementById('fxMiddleSwap').checked=(cfg.fxMiddleSwap!==false);
+document.getElementById('fxSplitHalves').checked=(cfg.fxSplitHalves!==false);
+document.getElementById('fxTetris').checked=(cfg.fxTetris!==false);
 document.getElementById('fxPileup').checked=(cfg.fxPileup!==false);
 document.getElementById('displayNegative').checked=(cfg.displayNegative===true);
 document.getElementById('fxQuotes').checked=(cfg.fxQuotes!==false);
@@ -970,7 +998,7 @@ postJsonForm('/save-animations',fd)
 function saveAnimationVisuals(){debounceSave('animVisuals',saveAnimations,320);}
 function saveAnimationSelection(){
 const fd=new FormData();
-['fxMove','fxMirror','fxRainbow','fxHoursSlide','fxMatrixFont','fxMatrixSideways','fxUpsideDown','fxRotate180','fxFullRotate','fxMiddleSwap','fxPileup'].forEach(id=>{
+['fxMove','fxMirror','fxRainbow','fxHoursSlide','fxMatrixFont','fxMatrixSideways','fxUpsideDown','fxRotate180','fxFullRotate','fxMiddleSwap','fxSplitHalves','fxTetris','fxPileup'].forEach(id=>{
 const el=document.getElementById(id);
 fd.append(id,(el&&el.checked)?'1':'0');
 });
@@ -1374,6 +1402,8 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/trigger-clock-rotate-180", HTTP_POST, authWrap(&WifiManager::handleTriggerClockRotate180));
     server->on("/trigger-clock-full-rotate", HTTP_POST, authWrap(&WifiManager::handleTriggerClockFullRotate));
     server->on("/trigger-clock-middle-swap", HTTP_POST, authWrap(&WifiManager::handleTriggerClockMiddleSwap));
+    server->on("/trigger-clock-split-halves", HTTP_POST, authWrap(&WifiManager::handleTriggerClockSplitHalves));
+    server->on("/trigger-clock-tetris", HTTP_POST, authWrap(&WifiManager::handleTriggerClockTetris));
     server->on("/trigger-clock-pileup", HTTP_POST, authWrap(&WifiManager::handleTriggerClockPileup));
     server->on("/trigger-clock-negative", HTTP_POST, authWrap(&WifiManager::handleTriggerClockNegative));
     server->on("/delete-quote", HTTP_POST, authWrap(&WifiManager::handleDeleteQuote));
@@ -1700,6 +1730,8 @@ void WifiManager::handleApiAnimationsConfig() {
     bool fxRotate180 = preferences.getUChar("fxRotate180", 1) == 1;
     bool fxFullRotate = preferences.getUChar("fxFullRotate", 1) == 1;
     bool fxMiddleSwap = preferences.getUChar("fxMiddleSwap", 1) == 1;
+    bool fxSplitHalves = preferences.getUChar("fxSplitHalves", 1) == 1;
+    bool fxTetris = preferences.getUChar("fxTetris", 1) == 1;
     bool fxPileup = preferences.getUChar("fxPileup", 1) == 1;
     bool displayNegative = preferences.getUChar("displayNegative", 0) == 1;
     bool fxQuotes = preferences.getUChar("quotes_enabled", 1) == 1;
@@ -1717,6 +1749,8 @@ void WifiManager::handleApiAnimationsConfig() {
     json += "\"fxRotate180\":" + String(fxRotate180 ? "true" : "false") + ",";
     json += "\"fxFullRotate\":" + String(fxFullRotate ? "true" : "false") + ",";
     json += "\"fxMiddleSwap\":" + String(fxMiddleSwap ? "true" : "false") + ",";
+    json += "\"fxSplitHalves\":" + String(fxSplitHalves ? "true" : "false") + ",";
+    json += "\"fxTetris\":" + String(fxTetris ? "true" : "false") + ",";
     json += "\"fxPileup\":" + String(fxPileup ? "true" : "false") + ",";
     json += "\"displayNegative\":" + String(displayNegative ? "true" : "false") + ",";
     json += "\"fxQuotes\":" + String(fxQuotes ? "true" : "false");
@@ -2008,6 +2042,22 @@ void WifiManager::handleTriggerClockMiddleSwap() {
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
 }
 
+void WifiManager::handleTriggerClockSplitHalves() {
+    display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
+    display_triggerFunClockSplitHalves();
+    Serial.println("[WiFi] Trigger clock split-halves test");
+    server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
+}
+
+void WifiManager::handleTriggerClockTetris() {
+    display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
+    display_triggerFunClockTetris();
+    Serial.println("[WiFi] Trigger clock Tetris test");
+    server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
+}
+
 void WifiManager::handleTriggerClockPileup() {
     display_mode = DISPLAY_MODE_CLOCK;
     scheduler_snoozeQuotes(45000U);
@@ -2108,6 +2158,8 @@ void WifiManager::handleSaveAnimations() {
         server->hasArg("fxRotate180") ||
         server->hasArg("fxFullRotate") ||
         server->hasArg("fxMiddleSwap") ||
+        server->hasArg("fxSplitHalves") ||
+        server->hasArg("fxTetris") ||
         server->hasArg("fxPileup") ||
         server->hasArg("displayNegative") ||
         server->hasArg("fxQuotes");
@@ -2129,6 +2181,8 @@ void WifiManager::handleSaveAnimations() {
     bool fxRotate180 = fullAnimFormUpdate ? boolArgValue("fxRotate180", preferences.getUChar("fxRotate180", 1) == 1) : (preferences.getUChar("fxRotate180", 1) == 1);
     bool fxFullRotate = fullAnimFormUpdate ? boolArgValue("fxFullRotate", preferences.getUChar("fxFullRotate", 1) == 1) : (preferences.getUChar("fxFullRotate", 1) == 1);
     bool fxMiddleSwap = fullAnimFormUpdate ? boolArgValue("fxMiddleSwap", preferences.getUChar("fxMiddleSwap", 1) == 1) : (preferences.getUChar("fxMiddleSwap", 1) == 1);
+    bool fxSplitHalves = fullAnimFormUpdate ? boolArgValue("fxSplitHalves", preferences.getUChar("fxSplitHalves", 1) == 1) : (preferences.getUChar("fxSplitHalves", 1) == 1);
+    bool fxTetris = fullAnimFormUpdate ? boolArgValue("fxTetris", preferences.getUChar("fxTetris", 1) == 1) : (preferences.getUChar("fxTetris", 1) == 1);
     bool fxPileup = fullAnimFormUpdate ? boolArgValue("fxPileup", preferences.getUChar("fxPileup", 1) == 1) : (preferences.getUChar("fxPileup", 1) == 1);
     bool displayNegative = fullAnimFormUpdate ? boolArgValue("displayNegative", preferences.getUChar("displayNegative", 0) == 1) : (preferences.getUChar("displayNegative", 0) == 1);
     bool fxQuotes = fullAnimFormUpdate ? boolArgValue("fxQuotes", preferences.getUChar("quotes_enabled", 1) == 1) : (preferences.getUChar("quotes_enabled", 1) == 1);
@@ -2155,6 +2209,8 @@ void WifiManager::handleSaveAnimations() {
         preferences.putUChar("fxRotate180", fxRotate180 ? 1 : 0);
         preferences.putUChar("fxFullRotate", fxFullRotate ? 1 : 0);
         preferences.putUChar("fxMiddleSwap", fxMiddleSwap ? 1 : 0);
+        preferences.putUChar("fxSplitHalves", fxSplitHalves ? 1 : 0);
+        preferences.putUChar("fxTetris", fxTetris ? 1 : 0);
         preferences.putUChar("fxPileup", fxPileup ? 1 : 0);
         preferences.putUChar("displayNegative", displayNegative ? 1 : 0);
         preferences.putUChar("quotes_enabled", fxQuotes ? 1 : 0);
@@ -2164,7 +2220,7 @@ void WifiManager::handleSaveAnimations() {
         display_setBrightness((uint8_t)brightness);
     }
     display_setFunClockIntervalSeconds((uint16_t)clockAnimInterval);
-    display_setFunClockEffectsEnabled(fxMove, fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, fxPileup, displayNegative);
+    display_setFunClockEffectsEnabled(fxMove, fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, fxSplitHalves, fxTetris, fxPileup, displayNegative);
     display_setNegative(false);
     mainConfig.schedule.random_quotes_enabled = fxQuotes;
 
@@ -2187,7 +2243,7 @@ void WifiManager::handleSaveAnimations() {
         modeApplied = true;
     }
 
-    Serial.printf("[WiFi] Brightness applied: %d, Color: %s, ClockAnimInterval: %ds, fx=%d%d%d%d%d%d%d%d%d%d%d, lamp=%d, neg=%d, quotes=%d\n",
+    Serial.printf("[WiFi] Brightness applied: %d, Color: %s, ClockAnimInterval: %ds, fx=%d%d%d%d%d%d%d%d%d%d%d%d%d, lamp=%d, neg=%d, quotes=%d\n",
         brightness,
         animColor.c_str(),
         clockAnimInterval,
@@ -2201,6 +2257,8 @@ void WifiManager::handleSaveAnimations() {
         fxRotate180 ? 1 : 0,
         fxFullRotate ? 1 : 0,
         fxMiddleSwap ? 1 : 0,
+        fxSplitHalves ? 1 : 0,
+        fxTetris ? 1 : 0,
         fxPileup ? 1 : 0,
         lampEnabled ? 1 : 0,
         displayNegative ? 1 : 0,

@@ -53,6 +53,8 @@ static bool funClockUpsideDownEnabled = true;
 static bool funClockRotate180Enabled = true;
 static bool funClockFullRotateEnabled = true;
 static bool funClockMiddleSwapEnabled = true;
+static bool funClockSplitHalvesEnabled = true;
+static bool funClockTetrisEnabled = true;
 static bool funClockPileupEnabled = true;
 static bool funClockNegativeEnabled = false;
 static CRGB displayFrameBackup[NUM_LEDS];
@@ -77,8 +79,10 @@ enum FunClockEffect : uint8_t {
     FUN_CLOCK_EFFECT_ROTATE_180 = 8,
     FUN_CLOCK_EFFECT_FULL_ROTATE = 9,
     FUN_CLOCK_EFFECT_MIDDLE_SWAP = 10,
-    FUN_CLOCK_EFFECT_PILEUP = 11,
-    FUN_CLOCK_EFFECT_NEGATIVE = 12
+    FUN_CLOCK_EFFECT_SPLIT_HALVES = 11,
+    FUN_CLOCK_EFFECT_TETRIS = 12,
+    FUN_CLOCK_EFFECT_PILEUP = 13,
+    FUN_CLOCK_EFFECT_NEGATIVE = 14
 };
 
 static FunClockEffect funClockLastEffect = FUN_CLOCK_EFFECT_NONE;
@@ -113,6 +117,8 @@ static void funClockStartUpsideDown(uint32_t now);
 static void funClockStartRotate180(uint32_t now);
 static void funClockStartFullRotate(uint32_t now);
 static void funClockStartMiddleSwap(uint32_t now);
+static void funClockStartSplitHalves(uint32_t now);
+static void funClockStartTetris(uint32_t now);
 static void funClockStartPileup(uint32_t now);
 static void funClockStartNegative(uint32_t now);
 
@@ -164,6 +170,8 @@ static uint8_t displayAdaptiveBlendWeight() {
         case FUN_CLOCK_EFFECT_ROTATE_180: return 36;
         case FUN_CLOCK_EFFECT_FULL_ROTATE: return 34;
         case FUN_CLOCK_EFFECT_MIDDLE_SWAP: return 40;
+        case FUN_CLOCK_EFFECT_SPLIT_HALVES: return 38;
+        case FUN_CLOCK_EFFECT_TETRIS: return 44;
         case FUN_CLOCK_EFFECT_PILEUP: return 32;
         case FUN_CLOCK_EFFECT_NEGATIVE: return 0;
         case FUN_CLOCK_EFFECT_NONE:
@@ -189,7 +197,7 @@ static void funClockInitIfNeeded() {
 }
 
 static bool funClockStartAnyEnabledEffect(uint32_t now) {
-    FunClockEffect enabled[12];
+    FunClockEffect enabled[14];
     uint8_t count = 0;
 
     if (funClockMoveEnabled) enabled[count++] = FUN_CLOCK_EFFECT_MOVE;
@@ -202,6 +210,8 @@ static bool funClockStartAnyEnabledEffect(uint32_t now) {
     if (funClockRotate180Enabled) enabled[count++] = FUN_CLOCK_EFFECT_ROTATE_180;
     if (funClockFullRotateEnabled) enabled[count++] = FUN_CLOCK_EFFECT_FULL_ROTATE;
     if (funClockMiddleSwapEnabled) enabled[count++] = FUN_CLOCK_EFFECT_MIDDLE_SWAP;
+    if (funClockSplitHalvesEnabled) enabled[count++] = FUN_CLOCK_EFFECT_SPLIT_HALVES;
+    if (funClockTetrisEnabled) enabled[count++] = FUN_CLOCK_EFFECT_TETRIS;
     if (funClockPileupEnabled) enabled[count++] = FUN_CLOCK_EFFECT_PILEUP;
     if (funClockNegativeEnabled) enabled[count++] = FUN_CLOCK_EFFECT_NEGATIVE;
 
@@ -212,7 +222,7 @@ static bool funClockStartAnyEnabledEffect(uint32_t now) {
         blocked = funClockLastEffect;
     }
 
-    FunClockEffect selectable[12];
+    FunClockEffect selectable[14];
     uint8_t selectableCount = 0;
     for (uint8_t i = 0; i < count; i++) {
         if (enabled[i] != blocked) {
@@ -249,6 +259,10 @@ static bool funClockStartAnyEnabledEffect(uint32_t now) {
         funClockStartFullRotate(now);
     } else if (selected == FUN_CLOCK_EFFECT_MIDDLE_SWAP) {
         funClockStartMiddleSwap(now);
+    } else if (selected == FUN_CLOCK_EFFECT_SPLIT_HALVES) {
+        funClockStartSplitHalves(now);
+    } else if (selected == FUN_CLOCK_EFFECT_TETRIS) {
+        funClockStartTetris(now);
     } else if (selected == FUN_CLOCK_EFFECT_PILEUP) {
         funClockStartPileup(now);
     } else if (selected == FUN_CLOCK_EFFECT_NEGATIVE) {
@@ -360,6 +374,24 @@ static void funClockStartMiddleSwap(uint32_t now) {
     funClockState.effectDurationMs = 2650U;
 }
 
+static void funClockStartSplitHalves(uint32_t now) {
+    for (uint8_t i = 0; i < 8; i++) {
+        digitOffset[i] = 0;
+    }
+    funClockState.activeEffect = FUN_CLOCK_EFFECT_SPLIT_HALVES;
+    funClockState.effectStartMs = now;
+    funClockState.effectDurationMs = (uint32_t)random(3200, 5201);
+}
+
+static void funClockStartTetris(uint32_t now) {
+    for (uint8_t i = 0; i < 8; i++) {
+        digitOffset[i] = 0;
+    }
+    funClockState.activeEffect = FUN_CLOCK_EFFECT_TETRIS;
+    funClockState.effectStartMs = now;
+    funClockState.effectDurationMs = 10000U;
+}
+
 static void funClockStartPileup(uint32_t now) {
     for (uint8_t i = 0; i < 8; i++) {
         digitOffset[i] = 0;
@@ -437,6 +469,8 @@ static void funClockUpdateState() {
         funClockState.activeEffect == FUN_CLOCK_EFFECT_ROTATE_180 ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_FULL_ROTATE ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_MIDDLE_SWAP ||
+        funClockState.activeEffect == FUN_CLOCK_EFFECT_SPLIT_HALVES ||
+        funClockState.activeEffect == FUN_CLOCK_EFFECT_TETRIS ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_PILEUP ||
         funClockState.activeEffect == FUN_CLOCK_EFFECT_NEGATIVE) {
         uint32_t elapsed = now - funClockState.effectStartMs;
@@ -505,6 +539,16 @@ void display_triggerFunClockMiddleSwap() {
     funClockStartMiddleSwap(millis());
 }
 
+void display_triggerFunClockSplitHalves() {
+    funClockInitIfNeeded();
+    funClockStartSplitHalves(millis());
+}
+
+void display_triggerFunClockTetris() {
+    funClockInitIfNeeded();
+    funClockStartTetris(millis());
+}
+
 void display_triggerFunClockPileup() {
     funClockInitIfNeeded();
     funClockStartPileup(millis());
@@ -533,7 +577,7 @@ uint32_t display_getFunClockCompletedEffectsCount() {
     return funClockCompletedEffectsCount;
 }
 
-void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool matrixSidewaysEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool pileupEnabled, bool negativeEnabled) {
+void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool matrixSidewaysEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool splitHalvesEnabled, bool tetrisEnabled, bool pileupEnabled, bool negativeEnabled) {
     funClockMoveEnabled = moveEnabled;
     funClockMirrorEnabled = mirrorEnabled;
     funClockRainbowEnabled = rainbowEnabled;
@@ -544,6 +588,8 @@ void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, boo
     funClockRotate180Enabled = rotate180Enabled;
     funClockFullRotateEnabled = fullRotateEnabled;
     funClockMiddleSwapEnabled = middleSwapEnabled;
+    funClockSplitHalvesEnabled = splitHalvesEnabled;
+    funClockTetrisEnabled = tetrisEnabled;
     funClockPileupEnabled = pileupEnabled;
     funClockNegativeEnabled = negativeEnabled;
     funClockLastEffect = FUN_CLOCK_EFFECT_NONE;
@@ -578,6 +624,12 @@ void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, boo
         funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
     }
     if (!funClockMiddleSwapEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_MIDDLE_SWAP) {
+        funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
+    }
+    if (!funClockSplitHalvesEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_SPLIT_HALVES) {
+        funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
+    }
+    if (!funClockTetrisEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_TETRIS) {
         funClockState.activeEffect = FUN_CLOCK_EFFECT_NONE;
     }
     if (!funClockPileupEnabled && funClockState.activeEffect == FUN_CLOCK_EFFECT_PILEUP) {
@@ -696,6 +748,55 @@ static void drawClockDigit4x7(uint8_t digit, int16_t x, int16_t y, CRGB color) {
                 }
             }
         }
+    }
+}
+
+static void drawClockPixelAlpha(int16_t x, int16_t y, const CRGB& color, uint8_t alpha) {
+    if (alpha == 0) return;
+    if (x < 0 || x >= LED_WIDTH || y < 0 || y >= LED_HEIGHT) return;
+    uint16_t idx = XY((uint8_t)x, (uint8_t)y);
+    if (idx >= NUM_LEDS) return;
+
+    CRGB scaled = color;
+    scaled.nscale8_video(alpha);
+    leds[idx].r = qadd8(leds[idx].r, scaled.r);
+    leds[idx].g = qadd8(leds[idx].g, scaled.g);
+    leds[idx].b = qadd8(leds[idx].b, scaled.b);
+}
+
+static void drawClockDigit4x7SmoothVertical(uint8_t digit, int16_t x, int16_t y, CRGB color, float yShift) {
+    if (digit > 9) return;
+    for (uint8_t col = 0; col < 4; col++) {
+        uint8_t bits = clockDigits4x7[digit][col];
+        for (uint8_t row = 0; row < 7; row++) {
+            if (bits & (1 << row)) {
+                float pyf = (float)y + (float)row + yShift;
+                int16_t py0 = (int16_t)floorf(pyf);
+                float frac = pyf - (float)py0;
+                uint8_t a1 = (uint8_t)roundf(frac * 255.0f);
+                uint8_t a0 = (uint8_t)(255U - a1);
+                int16_t px = x + col;
+
+                drawClockPixelAlpha(px, py0, color, a0);
+                drawClockPixelAlpha(px, py0 + 1, color, a1);
+            }
+        }
+    }
+}
+
+static void drawClockColonClassicSmoothVertical(int16_t x, int16_t y, bool visible, CRGB color, float yShift) {
+    if (!visible) return;
+
+    float dots[2] = {(float)y + 2.0f + yShift, (float)y + 4.0f + yShift};
+    for (uint8_t i = 0; i < 2; i++) {
+        float pyf = dots[i];
+        int16_t py0 = (int16_t)floorf(pyf);
+        float frac = pyf - (float)py0;
+        uint8_t a1 = (uint8_t)roundf(frac * 255.0f);
+        uint8_t a0 = (uint8_t)(255U - a1);
+
+        drawClockPixelAlpha(x, py0, color, a0);
+        drawClockPixelAlpha(x, py0 + 1, color, a1);
     }
 }
 
@@ -1435,6 +1536,260 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
             }
         }
 
+        bool splitHalvesActive = (funClockState.activeEffect == FUN_CLOCK_EFFECT_SPLIT_HALVES);
+        float splitSymbolYOffset[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+        if (splitHalvesActive) {
+            uint32_t elapsed = millis() - funClockState.effectStartMs;
+            uint32_t duration = funClockState.effectDurationMs;
+            if (duration == 0U) duration = 1U;
+            if (elapsed > duration) elapsed = duration;
+            float progress = (float)elapsed / (float)duration;
+
+            float groupDownShift = 0.0f;
+            float groupUpShift = 0.0f;
+            if (progress < 0.5f) {
+                float phase = progress / 0.5f;
+                float outShift = phase * 7.0f;
+                groupDownShift = outShift;
+                groupUpShift = -outShift;
+            } else {
+                float phase = (progress - 0.5f) / 0.5f;
+                float inShift = (1.0f - phase) * 7.0f;
+                groupDownShift = -inShift;
+                groupUpShift = inShift;
+            }
+
+            // Grupa A: cyfra 4,5,6 + drugi dwukropek => m2, :, s1, s2 (indeksy 4,5,6,7)
+            splitSymbolYOffset[4] = groupDownShift;
+            splitSymbolYOffset[5] = groupDownShift;
+            splitSymbolYOffset[6] = groupDownShift;
+            splitSymbolYOffset[7] = groupDownShift;
+            // Grupa B: reszta + pierwszy dwukropek => h1, h2, :, m1 (indeksy 0,1,2,3)
+            splitSymbolYOffset[0] = groupUpShift;
+            splitSymbolYOffset[1] = groupUpShift;
+            splitSymbolYOffset[2] = groupUpShift;
+            splitSymbolYOffset[3] = groupUpShift;
+        }
+
+        bool tetrisActive = (funClockState.activeEffect == FUN_CLOCK_EFFECT_TETRIS);
+        bool tetrisIntroActive = false;
+        float tetrisSymbolYOffset[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+        if (tetrisActive) {
+            uint32_t elapsed = millis() - funClockState.effectStartMs;
+            const uint32_t introDurationMs = 2000U;
+            uint32_t introElapsed = elapsed;
+            if (introElapsed > introDurationMs) introElapsed = introDurationMs;
+            tetrisIntroActive = (elapsed < introDurationMs);
+
+            const uint32_t dropDelayMs = 240U;
+            const uint32_t dropMs = 540U;
+            const uint32_t bounceUpMs = 130U;
+            const uint32_t bounceDownMs = 180U;
+            const float startY = -10.0f;
+            const float bounceHeight = -1.6f;
+
+            for (uint8_t i = 0; i < 8; i++) {
+                uint32_t startDelay = (uint32_t)i * dropDelayMs;
+                if (elapsed < startDelay) {
+                    tetrisSymbolYOffset[i] = startY;
+                    continue;
+                }
+
+                uint32_t localElapsed = introElapsed - startDelay;
+                if (localElapsed < dropMs) {
+                    float p = (float)localElapsed / (float)dropMs;
+                    float easeOut = 1.0f - powf(1.0f - p, 3.0f);
+                    tetrisSymbolYOffset[i] = startY + (0.0f - startY) * easeOut;
+                } else if (localElapsed < (dropMs + bounceUpMs)) {
+                    float p = (float)(localElapsed - dropMs) / (float)bounceUpMs;
+                    tetrisSymbolYOffset[i] = bounceHeight * p;
+                } else if (localElapsed < (dropMs + bounceUpMs + bounceDownMs)) {
+                    float p = (float)(localElapsed - dropMs - bounceUpMs) / (float)bounceDownMs;
+                    tetrisSymbolYOffset[i] = bounceHeight * (1.0f - p);
+                } else {
+                    tetrisSymbolYOffset[i] = 0.0f;
+                }
+            }
+        }
+
+        if (tetrisActive) {
+            uint32_t elapsed = millis() - funClockState.effectStartMs;
+            const uint32_t introDurationMs = 2000U;
+            const uint32_t coverBuildMs = 2200U;
+            const uint32_t coverHoldMs = 3000U;
+            const uint32_t coverDropMs = 2600U;
+
+            if (elapsed >= introDurationMs) {
+                uint32_t phaseElapsed = elapsed - introDurationMs;
+                bool coverBuild = phaseElapsed < coverBuildMs;
+                bool coverHold = (!coverBuild) && (phaseElapsed < (coverBuildMs + coverHoldMs));
+                uint32_t dropElapsed = 0U;
+                if (!coverBuild && !coverHold) {
+                    dropElapsed = phaseElapsed - (coverBuildMs + coverHoldMs);
+                    if (dropElapsed > coverDropMs) dropElapsed = coverDropMs;
+                }
+
+                auto drawBaseClock = [&]() {
+                    if (drawHours) {
+                        drawClockDigit4x7(h1, x0, y + 1 + digitOffset[0], clock_color);
+                        drawClockDigit4x7(h2, x1, y + digitOffset[1], clock_color);
+                    }
+                    drawClockColonClassic(x2, y + digitOffset[2], colon, clock_color);
+                    drawClockDigit4x7(m1, x3, y + 1 + digitOffset[3], clock_color);
+                    drawClockDigit4x7(m2, x4, y + digitOffset[4], clock_color);
+                    drawClockColonClassic(x5, y + digitOffset[5], colon, clock_color);
+                    drawClockDigit4x7(s1, x6, y + 1 + digitOffset[6], clock_color);
+                    drawClockDigit4x7(s2, x7, y + digitOffset[7], clock_color);
+                };
+
+                const int16_t coverX = 0;
+                const int16_t coverY = 0;
+
+                // Zegar pozostaje rysowany we wszystkich fazach,
+                // aby nie było chwilowego „zanikania” cyfr.
+                drawBaseClock();
+
+                static const int8_t tetrominoShapes[8][4][2] = {
+                    {{0,0},{1,0},{2,0},{3,0}}, // I poziomo
+                    {{0,0},{0,1},{0,2},{0,3}}, // I pionowo
+                    {{0,0},{1,0},{0,1},{1,1}}, // O
+                    {{0,0},{1,0},{2,0},{1,1}}, // T
+                    {{0,0},{0,1},{0,2},{1,2}}, // L
+                    {{1,0},{1,1},{1,2},{0,2}}, // J
+                    {{1,0},{2,0},{0,1},{1,1}}, // S
+                    {{0,0},{1,0},{1,1},{2,1}}  // Z
+                };
+
+                struct TetrisPieceDef {
+                    uint8_t shape;
+                    int8_t relX;
+                    int8_t relY;
+                    uint8_t colorIdx;
+                };
+
+                static TetrisPieceDef pieces[160];
+                static uint8_t pieceCount = 0;
+                static uint8_t piecesW = 0;
+                static uint8_t piecesH = 0;
+
+                if (pieceCount == 0 || piecesW != LED_WIDTH || piecesH != LED_HEIGHT) {
+                    pieceCount = 0;
+                    piecesW = LED_WIDTH;
+                    piecesH = LED_HEIGHT;
+
+                    // Wypełnienie całej matrycy z dużą różnorodnością kształtów.
+                    // Używamy wszystkich klasycznych figur: I, O, T, L, J, S, Z.
+                    const uint8_t shapePool[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+                    for (int16_t py = 0; py < LED_HEIGHT && pieceCount < 160; py += 2) {
+                        for (int16_t px = 0; px < LED_WIDTH && pieceCount < 160; px += 2) {
+                            uint8_t mix = (uint8_t)((px / 2) + (py / 2) * 3 + ((px * 13 + py * 7) & 0x07));
+                            uint8_t shape = shapePool[mix & 0x07];
+
+                            pieces[pieceCount].shape = shape;
+                            pieces[pieceCount].relX = (int8_t)px;
+                            pieces[pieceCount].relY = (int8_t)py;
+                            pieces[pieceCount].colorIdx = (uint8_t)((mix * 3 + px + py) & 0x07);
+                            pieceCount++;
+                        }
+                    }
+
+                    // Dodatkowa warstwa „showcase” z 7 unikalnymi figurami na środku.
+                    const uint8_t showcaseShapes[7] = {0, 2, 3, 4, 5, 6, 7};
+                    int16_t showcaseY = (LED_HEIGHT > 4) ? ((LED_HEIGHT / 2) - 2) : 0;
+                    int16_t span = (LED_WIDTH > 4) ? (LED_WIDTH - 4) : 0;
+                    for (uint8_t s = 0; s < 7 && pieceCount < 160; s++) {
+                        int16_t px = (span * s) / 6;
+                        pieces[pieceCount].shape = showcaseShapes[s];
+                        pieces[pieceCount].relX = (int8_t)px;
+                        pieces[pieceCount].relY = (int8_t)showcaseY;
+                        pieces[pieceCount].colorIdx = (uint8_t)((s + 1) & 0x07);
+                        pieceCount++;
+                    }
+                }
+
+                static const CRGB piecePalette[] = {
+                    CRGB(255, 32, 32),   // czerwony
+                    CRGB(255, 140, 0),   // pomarańcz
+                    CRGB(255, 255, 0),   // żółty
+                    CRGB(40, 255, 40),   // limonka
+                    CRGB(0, 255, 255),   // cyjan
+                    CRGB(32, 96, 255),   // niebieski
+                    CRGB(255, 32, 200),  // magenta
+                    CRGB(255, 255, 255)  // biały dla maks. kontrastu
+                };
+
+                for (uint8_t i = 0; i < pieceCount; i++) {
+                    const TetrisPieceDef& p = pieces[i];
+                    int16_t baseX = coverX + p.relX;
+                    float baseY = (float)(coverY + p.relY);
+                    float drawBaseY = baseY;
+
+                    if (coverBuild) {
+                        const uint32_t fallMs = 560U;
+                        uint32_t step = 0U;
+                        if (pieceCount > 1 && coverBuildMs > fallMs) {
+                            step = (coverBuildMs - fallMs) / (uint32_t)(pieceCount - 1);
+                        }
+                        uint32_t startDelay = (uint32_t)i * step;
+                        if (phaseElapsed < startDelay) {
+                            continue;
+                        }
+                        uint32_t local = phaseElapsed - startDelay;
+                        if (local > fallMs) local = fallMs;
+                        float t = (float)local / (float)fallMs;
+                        float easeOut = 1.0f - powf(1.0f - t, 3.0f);
+                        float startY = -6.0f;
+                        drawBaseY = startY + (baseY - startY) * easeOut;
+                    } else if (coverHold) {
+                        drawBaseY = baseY;
+                    } else {
+                        const uint32_t fallMs = 520U;
+                        // Kolejność opadania: od dołu do góry.
+                        // Klocki będące wyżej czekają, aż niższe spadną.
+                        uint16_t dropOrder = 0;
+                        for (uint8_t j = 0; j < pieceCount; j++) {
+                            if (j == i) continue;
+                            const TetrisPieceDef& other = pieces[j];
+                            if (other.relY > p.relY) {
+                                dropOrder++;
+                            } else if (other.relY == p.relY && other.relX < p.relX) {
+                                dropOrder++;
+                            }
+                        }
+
+                        uint32_t step = 0U;
+                        if (pieceCount > 1 && coverDropMs > fallMs) {
+                            step = (coverDropMs - fallMs) / (uint32_t)(pieceCount - 1);
+                        }
+                        uint32_t startDelay = (uint32_t)dropOrder * step;
+                        if (dropElapsed < startDelay) {
+                            drawBaseY = baseY;
+                        } else {
+                            uint32_t local = dropElapsed - startDelay;
+                            if (local >= fallMs) {
+                                continue;
+                            }
+                            float t = (float)local / (float)fallMs;
+                            float easeIn = t * t;
+                            float offY = (float)(LED_HEIGHT + 6);
+                            drawBaseY = baseY + offY * easeIn;
+                        }
+                    }
+
+                    CRGB color = piecePalette[p.colorIdx % (sizeof(piecePalette) / sizeof(piecePalette[0]))];
+                    for (uint8_t c = 0; c < 4; c++) {
+                        int16_t px = baseX + tetrominoShapes[p.shape][c][0];
+                        int16_t py = (int16_t)roundf(drawBaseY + (float)tetrominoShapes[p.shape][c][1]);
+                        display_setPixelSafe(px, py, color);
+                    }
+                }
+
+                return;
+            }
+        }
+
         bool pileupActive = (funClockState.activeEffect == FUN_CLOCK_EFFECT_PILEUP);
         int8_t pileupYOffset[8] = {0, 0, 0, 0, 0, 0, 0, 0};
         uint8_t pileupMode[8] = {0, 0, 0, 0, 0, 0, 0, 0}; // 0=normal,1=mirror,2=upside,3=rot180
@@ -1536,7 +1891,13 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
         }
 
         if (drawHours) {
-            if (funClockState.activeEffect == FUN_CLOCK_EFFECT_MIRROR) {
+            if (splitHalvesActive) {
+                drawClockDigit4x7SmoothVertical(h1, x0, y + 1 + digitOffset[0], symbolColor[0], splitSymbolYOffset[0]);
+                drawClockDigit4x7SmoothVertical(h2, x1, y + digitOffset[1], symbolColor[1], splitSymbolYOffset[1]);
+            } else if (tetrisIntroActive) {
+                drawClockDigit4x7SmoothVertical(h1, x0, y + 1 + digitOffset[0], symbolColor[0], tetrisSymbolYOffset[0]);
+                drawClockDigit4x7SmoothVertical(h2, x1, y + digitOffset[1], symbolColor[1], tetrisSymbolYOffset[1]);
+            } else if (funClockState.activeEffect == FUN_CLOCK_EFFECT_MIRROR) {
                 drawClockDigit4x7Mirrored(h1, x0, y + 1 + digitOffset[0], symbolColor[0]);
                 drawClockDigit4x7Mirrored(h2, x1, y + digitOffset[1], symbolColor[1]);
             } else if (funClockState.activeEffect == FUN_CLOCK_EFFECT_ROTATE_180) {
@@ -1550,7 +1911,11 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
                 drawClockDigit4x7(h2, x1, y + digitOffset[1], symbolColor[1]);
             }
         }
-        if (funClockState.activeEffect == FUN_CLOCK_EFFECT_UPSIDE_DOWN) {
+        if (splitHalvesActive) {
+            drawClockColonClassicSmoothVertical(x2, y + digitOffset[2], colon, symbolColor[2], splitSymbolYOffset[2]);
+        } else if (tetrisIntroActive) {
+            drawClockColonClassicSmoothVertical(x2, y + digitOffset[2], colon, symbolColor[2], tetrisSymbolYOffset[2]);
+        } else if (funClockState.activeEffect == FUN_CLOCK_EFFECT_UPSIDE_DOWN) {
             drawClockColonClassicUpsideDown(x2, y + digitOffset[2], colon, symbolColor[2]);
         } else {
             drawClockColonClassic(x2, y + digitOffset[2], colon, symbolColor[2]);
@@ -1558,6 +1923,12 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
         if (funClockState.activeEffect == FUN_CLOCK_EFFECT_MIRROR) {
             drawClockDigit4x7Mirrored(m1, x3, y + 1 + digitOffset[3], symbolColor[3]);
             drawClockDigit4x7Mirrored(m2, x4, y + digitOffset[4], symbolColor[4]);
+        } else if (splitHalvesActive) {
+            drawClockDigit4x7SmoothVertical(m1, x3, y + 1 + digitOffset[3], symbolColor[3], splitSymbolYOffset[3]);
+            drawClockDigit4x7SmoothVertical(m2, x4, y + digitOffset[4], symbolColor[4], splitSymbolYOffset[4]);
+        } else if (tetrisIntroActive) {
+            drawClockDigit4x7SmoothVertical(m1, x3, y + 1 + digitOffset[3], symbolColor[3], tetrisSymbolYOffset[3]);
+            drawClockDigit4x7SmoothVertical(m2, x4, y + digitOffset[4], symbolColor[4], tetrisSymbolYOffset[4]);
         } else if (funClockState.activeEffect == FUN_CLOCK_EFFECT_ROTATE_180) {
             drawClockDigit4x7Rotate180(m1, x3, y + 1 + digitOffset[3], symbolColor[3]);
             drawClockDigit4x7Rotate180(m2, x4, y + digitOffset[4], symbolColor[4]);
@@ -1568,7 +1939,11 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
             drawClockDigit4x7(m1, x3, y + 1 + digitOffset[3], symbolColor[3]);
             drawClockDigit4x7(m2, x4, y + digitOffset[4], symbolColor[4]);
         }
-        if (funClockState.activeEffect == FUN_CLOCK_EFFECT_UPSIDE_DOWN) {
+        if (splitHalvesActive) {
+            drawClockColonClassicSmoothVertical(x5, y + digitOffset[5], colon, symbolColor[5], splitSymbolYOffset[5]);
+        } else if (tetrisIntroActive) {
+            drawClockColonClassicSmoothVertical(x5, y + digitOffset[5], colon, symbolColor[5], tetrisSymbolYOffset[5]);
+        } else if (funClockState.activeEffect == FUN_CLOCK_EFFECT_UPSIDE_DOWN) {
             drawClockColonClassicUpsideDown(x5, y + digitOffset[5], colon, symbolColor[5]);
         } else {
             drawClockColonClassic(x5, y + digitOffset[5], colon, symbolColor[5]);
@@ -1576,6 +1951,12 @@ void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon,
         if (funClockState.activeEffect == FUN_CLOCK_EFFECT_MIRROR) {
             drawClockDigit4x7Mirrored(s1, x6, y + 1 + digitOffset[6], symbolColor[6]);
             drawClockDigit4x7Mirrored(s2, x7, y + digitOffset[7], symbolColor[7]);
+        } else if (splitHalvesActive) {
+            drawClockDigit4x7SmoothVertical(s1, x6, y + 1 + digitOffset[6], symbolColor[6], splitSymbolYOffset[6]);
+            drawClockDigit4x7SmoothVertical(s2, x7, y + digitOffset[7], symbolColor[7], splitSymbolYOffset[7]);
+        } else if (tetrisIntroActive) {
+            drawClockDigit4x7SmoothVertical(s1, x6, y + 1 + digitOffset[6], symbolColor[6], tetrisSymbolYOffset[6]);
+            drawClockDigit4x7SmoothVertical(s2, x7, y + digitOffset[7], symbolColor[7], tetrisSymbolYOffset[7]);
         } else if (funClockState.activeEffect == FUN_CLOCK_EFFECT_ROTATE_180) {
             drawClockDigit4x7Rotate180(s1, x6, y + 1 + digitOffset[6], symbolColor[6]);
             drawClockDigit4x7Rotate180(s2, x7, y + digitOffset[7], symbolColor[7]);

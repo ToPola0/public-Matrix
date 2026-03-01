@@ -66,6 +66,8 @@ private:
     void handleTriggerClockRotate180();
     void handleTriggerClockFullRotate();
     void handleTriggerClockMiddleSwap();
+    void handleTriggerClockSplitHalves();
+    void handleTriggerClockTetris();
     void handleTriggerClockPileup();
     void handleTriggerClockNegative();
     void handleTriggerHaEntity();

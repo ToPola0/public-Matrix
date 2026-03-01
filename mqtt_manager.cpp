@@ -7,6 +7,8 @@
 
 #include "clock.h"
 #include "display.h"
+#include "effects.h"
+#include "quotes.h"
 
 static const char* kDefaultApPassword = "12345678";
 static const char* kHiddenApPasswordPlaceholder = "********";
@@ -40,6 +42,7 @@ static String mqttApPasswordShowStateTopic;
 static String mqttApPasswordShowCommandTopic;
 static String mqttApPasswordStateTopic;
 static String mqttApPasswordCommandTopic;
+static String mqttQuoteTriggerCommandTopic;
 
 struct MqttHaEntityConfig {
     bool enabled;
@@ -78,12 +81,32 @@ static void mqttPublishApPasswordState();
 static void mqttPublishDiscoveryCleanup();
 static void mqttLoadApPasswordConfig();
 static void mqttRefreshApPasswordCache();
+static bool mqttTriggerQuoteTest();
 static void mqttLoadHaEntitiesConfigFromPrefs();
 static bool mqttApplyHaEntitiesConfigJson(const String& json, bool persistToPrefs);
 static void mqttSubscribeHaEntityTopics();
 static bool mqttTopicMatchesHaEntity(const String& topic, uint8_t& outIndex);
 static bool mqttHasAnyHaEntityWithValue();
 static String mqttResolveHaEntityTopic(const String& entityName, const String& fallbackTopic);
+
+static bool mqttTriggerQuoteTest() {
+    if (numQuotes == 0) {
+        return false;
+    }
+
+    char* selectedQuote = quotes_getRandom();
+    if (!selectedQuote || selectedQuote[0] == '\0') {
+        return false;
+    }
+
+    message_active = false;
+    display_mode = DISPLAY_MODE_QUOTE;
+    effects_quotes(selectedQuote);
+    display_enabled = true;
+
+    Serial.printf("[MQTT] Trigger quote test: %s\n", selectedQuote);
+    return true;
+}
 
 static bool mqttIsApPasswordDisplayEnabled() {
     return mqttApPasswordVisible;
@@ -390,6 +413,7 @@ static void mqttRebuildTopics() {
     mqttApPasswordShowCommandTopic = mqttBaseTopic + "/ap_password_show/set";
     mqttApPasswordStateTopic = mqttBaseTopic + "/ap_password/state";
     mqttApPasswordCommandTopic = mqttBaseTopic + "/ap_password/set";
+    mqttQuoteTriggerCommandTopic = mqttBaseTopic + "/quote_trigger/set";
 }
 
 static const char* mqttModeToString() {
@@ -509,6 +533,29 @@ static void mqttRestoreClockVisualsFromPrefs() {
     }
 }
 
+static bool mqttCanApplyBaseDisplayModeChange() {
+    if (display_mode == DISPLAY_MODE_QUOTE) return false;
+    if (message_active) return false;
+    return true;
+}
+
+static void mqttApplyLampModeFromCurrentConfig() {
+    if (mqttLampEnabled) {
+        if (mqttCanApplyBaseDisplayModeChange()) {
+            display_mode = DISPLAY_MODE_LAMP;
+        }
+        display_setBrightness(mqttLampBrightness);
+        globalColor = mqttLampColor;
+        display_setColor(mqttLampColor);
+        return;
+    }
+
+    if (mqttCanApplyBaseDisplayModeChange()) {
+        display_mode = DISPLAY_MODE_CLOCK;
+    }
+    mqttRestoreClockVisualsFromPrefs();
+}
+
 static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
     if (!topic || length == 0) return;
     String topicStr(topic);
@@ -527,11 +574,7 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
             mqttLoadLampConfigIfNeeded();
             mqttLampEnabled = true;
             mqttSaveLampConfig();
-            display_enabled = true;
-            display_mode = DISPLAY_MODE_LAMP;
-            display_setBrightness(mqttLampBrightness);
-            globalColor = mqttLampColor;
-            display_setColor(mqttLampColor);
+            mqttApplyLampModeFromCurrentConfig();
             mqttPublishLampState();
         } else if (requested == "animation") {
             mqttLoadLampConfigIfNeeded();
@@ -548,8 +591,7 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
             mqttLoadLampConfigIfNeeded();
             mqttLampEnabled = false;
             mqttSaveLampConfig();
-            display_mode = DISPLAY_MODE_CLOCK;
-            mqttRestoreClockVisualsFromPrefs();
+            mqttApplyLampModeFromCurrentConfig();
             mqttPublishLampState();
         }
 
@@ -609,6 +651,13 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
         return;
     }
 
+    if (topicStr == mqttQuoteTriggerCommandTopic) {
+        mqttTriggerQuoteTest();
+        mqttPublishState();
+        mqttPublishModeState();
+        return;
+    }
+
     uint8_t haIndex = 0;
     if (mqttTopicMatchesHaEntity(topicStr, haIndex)) {
         char temp[192];
@@ -626,12 +675,16 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
 
         StaticJsonDocument<320> doc;
         DeserializationError err = deserializeJson(doc, payload, length);
-        if (err) return;
-
         bool changed = false;
 
-        if (doc["state"].is<const char*>()) {
-            String state = doc["state"].as<const char*>();
+        if (err) {
+            char temp[16];
+            unsigned int copyLen = length < (sizeof(temp) - 1) ? length : (sizeof(temp) - 1);
+            memcpy(temp, payload, copyLen);
+            temp[copyLen] = '\0';
+
+            String state = String(temp);
+            state.trim();
             state.toUpperCase();
             if (state == "ON") {
                 mqttLampEnabled = true;
@@ -639,46 +692,50 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
             } else if (state == "OFF") {
                 mqttLampEnabled = false;
                 changed = true;
+            } else {
+                return;
             }
-        }
+        } else {
+            if (doc["state"].is<const char*>()) {
+                String state = doc["state"].as<const char*>();
+                state.toUpperCase();
+                if (state == "ON") {
+                    mqttLampEnabled = true;
+                    changed = true;
+                } else if (state == "OFF") {
+                    mqttLampEnabled = false;
+                    changed = true;
+                }
+            }
 
-        if (!doc["brightness"].isNull()) {
-            int requested = constrain((int)doc["brightness"], 1, 255);
-            mqttLampBrightness = (uint8_t)requested;
-            changed = true;
-        }
-
-        if (doc["color"].is<JsonObject>()) {
-            JsonObject color = doc["color"].as<JsonObject>();
-            mqttLampColor.r = (uint8_t)constrain((int)(color["r"] | mqttLampColor.r), 0, 255);
-            mqttLampColor.g = (uint8_t)constrain((int)(color["g"] | mqttLampColor.g), 0, 255);
-            mqttLampColor.b = (uint8_t)constrain((int)(color["b"] | mqttLampColor.b), 0, 255);
-            changed = true;
-        }
-
-        if (doc["rgb_color"].is<JsonArray>()) {
-            JsonArray rgb = doc["rgb_color"].as<JsonArray>();
-            if (rgb.size() >= 3) {
-                mqttLampColor.r = (uint8_t)constrain((int)rgb[0], 0, 255);
-                mqttLampColor.g = (uint8_t)constrain((int)rgb[1], 0, 255);
-                mqttLampColor.b = (uint8_t)constrain((int)rgb[2], 0, 255);
+            if (!doc["brightness"].isNull()) {
+                int requested = constrain((int)doc["brightness"], 1, 255);
+                mqttLampBrightness = (uint8_t)requested;
                 changed = true;
+            }
+
+            if (doc["color"].is<JsonObject>()) {
+                JsonObject color = doc["color"].as<JsonObject>();
+                mqttLampColor.r = (uint8_t)constrain((int)(color["r"] | mqttLampColor.r), 0, 255);
+                mqttLampColor.g = (uint8_t)constrain((int)(color["g"] | mqttLampColor.g), 0, 255);
+                mqttLampColor.b = (uint8_t)constrain((int)(color["b"] | mqttLampColor.b), 0, 255);
+                changed = true;
+            }
+
+            if (doc["rgb_color"].is<JsonArray>()) {
+                JsonArray rgb = doc["rgb_color"].as<JsonArray>();
+                if (rgb.size() >= 3) {
+                    mqttLampColor.r = (uint8_t)constrain((int)rgb[0], 0, 255);
+                    mqttLampColor.g = (uint8_t)constrain((int)rgb[1], 0, 255);
+                    mqttLampColor.b = (uint8_t)constrain((int)rgb[2], 0, 255);
+                    changed = true;
+                }
             }
         }
 
         if (changed) {
             mqttSaveLampConfig();
-
-            if (mqttLampEnabled) {
-                display_enabled = true;
-                display_mode = DISPLAY_MODE_LAMP;
-                display_setBrightness(mqttLampBrightness);
-                globalColor = mqttLampColor;
-                display_setColor(mqttLampColor);
-            } else {
-                display_mode = DISPLAY_MODE_CLOCK;
-                mqttRestoreClockVisualsFromPrefs();
-            }
+            mqttApplyLampModeFromCurrentConfig();
 
             mqttPublishLampState();
             mqttPublishModeState();
@@ -789,11 +846,15 @@ static void mqttPublishDiscoveryCleanup() {
     if (!mqttClient.connected()) return;
 
     String discoveryBase = mqttNormalizePrefix(mqttDiscoveryPrefix);
+    mqttClient.publish((discoveryBase + "/select/" + mqttDeviceId + "_mode/config").c_str(), "", true);
     mqttClient.publish((discoveryBase + "/number/" + mqttDeviceId + "_lamp_brightness/config").c_str(), "", true);
     mqttClient.publish((discoveryBase + "/text/" + mqttDeviceId + "_lamp_color_hex/config").c_str(), "", true);
     mqttClient.publish((discoveryBase + "/switch/" + mqttDeviceId + "_lamp_mode/config").c_str(), "", true);
+    mqttClient.publish((discoveryBase + "/switch/" + mqttDeviceId + "_ap_password_show/config").c_str(), "", true);
+    mqttClient.publish((discoveryBase + "/text/" + mqttDeviceId + "_ap_password_text/config").c_str(), "", true);
     mqttClient.publish((discoveryBase + "/sensor/" + mqttDeviceId + "_ap_password/config").c_str(), "", true);
     mqttClient.publish((discoveryBase + "/text/" + mqttDeviceId + "_ap_password/config").c_str(), "", true);
+    mqttClient.publish((discoveryBase + "/button/" + mqttDeviceId + "_quote_trigger/config").c_str(), "", true);
 }
 
 static void mqttPublishDiscovery() {
@@ -805,7 +866,7 @@ static void mqttPublishDiscovery() {
         String topic = discoveryBase + "/sensor/" + mqttDeviceId + "_status/config";
         StaticJsonDocument<640> doc;
         doc["name"] = "LED Matrix Clock Status";
-        doc["uniq_id"] = mqttDeviceId + "_status";
+        doc["unique_id"] = mqttDeviceId + "_status";
         doc["stat_t"] = mqttStateTopic;
         doc["avty_t"] = mqttAvailabilityTopic;
         doc["val_tpl"] = "{{ value_json.state }}";
@@ -828,7 +889,7 @@ static void mqttPublishDiscovery() {
         String topic = discoveryBase + "/sensor/" + mqttDeviceId + "_rssi/config";
         StaticJsonDocument<512> doc;
         doc["name"] = "LED Matrix Clock RSSI";
-        doc["uniq_id"] = mqttDeviceId + "_rssi";
+        doc["unique_id"] = mqttDeviceId + "_rssi";
         doc["stat_t"] = mqttStateTopic;
         doc["avty_t"] = mqttAvailabilityTopic;
         doc["val_tpl"] = "{{ value_json.rssi }}";
@@ -853,7 +914,7 @@ static void mqttPublishDiscovery() {
         String topic = discoveryBase + "/light/" + mqttDeviceId + "_light/config";
         StaticJsonDocument<768> doc;
         doc["name"] = "LED Matrix Clock";
-        doc["uniq_id"] = mqttDeviceId + "_light";
+        doc["unique_id"] = mqttDeviceId + "_light";
         doc["schema"] = "json";
         doc["cmd_t"] = mqttLightCommandTopic;
         doc["stat_t"] = mqttLightStateTopic;
@@ -880,7 +941,7 @@ static void mqttPublishDiscovery() {
         String topic = discoveryBase + "/light/" + mqttDeviceId + "_lamp/config";
         StaticJsonDocument<768> doc;
         doc["name"] = "LED Matrix Lampa";
-        doc["uniq_id"] = mqttDeviceId + "_lamp";
+        doc["unique_id"] = mqttDeviceId + "_lamp";
         doc["schema"] = "json";
         doc["cmd_t"] = mqttLampCommandTopic;
         doc["stat_t"] = mqttLampStateTopic;
@@ -907,7 +968,7 @@ static void mqttPublishDiscovery() {
         String topic = discoveryBase + "/number/" + mqttDeviceId + "_brightness/config";
         StaticJsonDocument<768> doc;
         doc["name"] = "LED Matrix Clock Jasność";
-        doc["uniq_id"] = mqttDeviceId + "_brightness";
+        doc["unique_id"] = mqttDeviceId + "_brightness";
         doc["cmd_t"] = mqttBrightnessCommandTopic;
         doc["stat_t"] = mqttBrightnessStateTopic;
         doc["avty_t"] = mqttAvailabilityTopic;
@@ -934,7 +995,7 @@ static void mqttPublishDiscovery() {
         String topic = discoveryBase + "/text/" + mqttDeviceId + "_color_hex/config";
         StaticJsonDocument<768> doc;
         doc["name"] = "LED Matrix Clock Kolor HEX";
-        doc["uniq_id"] = mqttDeviceId + "_color_hex";
+        doc["unique_id"] = mqttDeviceId + "_color_hex";
         doc["cmd_t"] = mqttColorCommandTopic;
         doc["stat_t"] = mqttColorStateTopic;
         doc["avty_t"] = mqttAvailabilityTopic;
@@ -943,33 +1004,6 @@ static void mqttPublishDiscovery() {
         doc["pattern"] = "^#[0-9A-Fa-f]{6}$";
         doc["mode"] = "text";
         doc["ic"] = "mdi:palette";
-
-        JsonObject dev = doc.createNestedObject("dev");
-        JsonArray ids = dev.createNestedArray("ids");
-        ids.add(mqttDeviceId);
-        dev["name"] = "LED Matrix Clock";
-        dev["mdl"] = "ESP32-S3 N16R8";
-        dev["mf"] = "DIY";
-
-        String payload;
-        serializeJson(doc, payload);
-        mqttClient.publish(topic.c_str(), payload.c_str(), true);
-    }
-
-    {
-        String topic = discoveryBase + "/select/" + mqttDeviceId + "_mode/config";
-        StaticJsonDocument<768> doc;
-        doc["name"] = "LED Matrix Tryb";
-        doc["uniq_id"] = mqttDeviceId + "_mode";
-        doc["cmd_t"] = mqttModeCommandTopic;
-        doc["stat_t"] = mqttModeStateTopic;
-        doc["avty_t"] = mqttAvailabilityTopic;
-        doc["ic"] = "mdi:view-dashboard";
-
-        JsonArray options = doc.createNestedArray("options");
-        options.add("clock");
-        options.add("lamp");
-        options.add("animation");
 
         JsonObject dev = doc.createNestedObject("dev");
         JsonArray ids = dev.createNestedArray("ids");
@@ -1024,6 +1058,29 @@ static void mqttPublishDiscovery() {
         doc["min"] = 8;
         doc["max"] = 63;
         doc["icon"] = "mdi:key-variant";
+
+        JsonObject dev = doc.createNestedObject("dev");
+        JsonArray ids = dev.createNestedArray("ids");
+        ids.add(mqttDeviceId);
+        dev["name"] = "LED Matrix Clock";
+        dev["mdl"] = "ESP32-S3 N16R8";
+        dev["mf"] = "DIY";
+
+        String payload;
+        serializeJson(doc, payload);
+        mqttClient.publish(topic.c_str(), payload.c_str(), true);
+    }
+
+    {
+        String topic = discoveryBase + "/button/" + mqttDeviceId + "_quote_trigger/config";
+        StaticJsonDocument<768> doc;
+        doc["name"] = "LED Matrix Wyzwol cytat";
+        doc["unique_id"] = mqttDeviceId + "_quote_trigger";
+        doc["command_topic"] = mqttQuoteTriggerCommandTopic;
+        doc["payload_press"] = "PRESS";
+        doc["availability_topic"] = mqttAvailabilityTopic;
+        doc["enabled_by_default"] = true;
+        doc["icon"] = "mdi:format-quote-close";
 
         JsonObject dev = doc.createNestedObject("dev");
         JsonArray ids = dev.createNestedArray("ids");
@@ -1127,6 +1184,7 @@ void mqtt_manager_loop() {
         mqttClient.subscribe(mqttModeCommandTopic.c_str());
         mqttClient.subscribe(mqttApPasswordShowCommandTopic.c_str());
         mqttClient.subscribe(mqttApPasswordCommandTopic.c_str());
+        mqttClient.subscribe(mqttQuoteTriggerCommandTopic.c_str());
         mqttSubscribeHaEntityTopics();
         mqttPublishExtraStates();
         mqttLastStatePublishMs = now;

@@ -25,7 +25,7 @@ char last_displayed_once_messages[10][32]; // Tracking wiadomości "once" wyświ
 uint8_t scheduled_animation_type = 0;        // Which animation type to play
 bool scheduled_animation_active = false;     // Is a scheduled animation running now
 bool scheduled_quote_active = false;         // Is a scheduled quote showing now
-static const uint8_t MIN_EFFECTS_BETWEEN_QUOTES = 3;
+static uint32_t quote_suppressed_until_ms = 0;
 static uint32_t last_quote_effect_count = 0;
 
 extern MainConfig mainConfig;
@@ -155,6 +155,17 @@ void scheduler_init() {
     // Reset "once" message tracking dla nowego dnia
     last_checked_hour = 255;
     memset(last_displayed_once_messages, 0, sizeof(last_displayed_once_messages));
+}
+
+void scheduler_snoozeQuotes(uint32_t durationMs) {
+    uint32_t now = millis();
+    uint32_t safeDuration = durationMs;
+    if (safeDuration < 2000U) safeDuration = 2000U;
+
+    quote_suppressed_until_ms = now + safeDuration;
+    last_quote_check = now;
+    last_quote_effect_count = display_getFunClockCompletedEffectsCount();
+    Serial.printf("[SCHEDULER] Quotes snoozed for %lu ms\n", (unsigned long)safeDuration);
 }
 
 // === HELPERS ===
@@ -334,57 +345,14 @@ bool shouldShowScheduledMessage(uint8_t& messageIndex) {
     return false;
 }
 
-bool shouldShowRandomQuote() {
-    if (!mainConfig.schedule.random_quotes_enabled) {
-        return false;
-    }
-
-    if (display_mode == DISPLAY_MODE_QUOTE) {
-        return false;
-    }
-
-    uint32_t currentEffectCount = display_getFunClockCompletedEffectsCount();
-    if ((currentEffectCount - last_quote_effect_count) < MIN_EFFECTS_BETWEEN_QUOTES) {
-        return false;
-    }
-    
-    unsigned long now = millis();
-    unsigned long interval_minutes = (mainConfig.schedule.random_quotes_interval > 0)
-        ? (unsigned long)mainConfig.schedule.random_quotes_interval
-        : 1UL;
-    if (interval_minutes < 2UL) {
-        interval_minutes = 2UL;
-    }
-    unsigned long interval_ms = interval_minutes * 60UL * 1000UL;
-    
-    if (now - last_quote_check < interval_ms) {
-        return false;
-    }
-    
-    // Sprawdzaj czy następna godzina
-    uint8_t current_hour = timeClient.getHours();
-    uint8_t start = mainConfig.schedule.random_quotes_start_hour;
-    uint8_t end = mainConfig.schedule.random_quotes_end_hour;
-    
-    if (start < end) {
-        // np. 9-17
-        if (current_hour < start || current_hour >= end) {
-            return false;
-        }
-    } else if (start > end) {
-        // np. 22-6 (przez północ)
-        if (current_hour < start && current_hour >= end) {
-            return false;
-        }
-    }
-    
-    return true;
-}
-
 // Sprawdź czy wyświetlić losowy cytat o pełnej godzinie
 bool shouldDisplayHourlyQuote() {
     // Sprawdzenie czy cytaty są włączone
     if (!mainConfig.schedule.random_quotes_enabled) {
+        return false;
+    }
+
+    if (quote_suppressed_until_ms != 0U && millis() < quote_suppressed_until_ms) {
         return false;
     }
 
@@ -394,9 +362,10 @@ bool shouldDisplayHourlyQuote() {
     
     uint8_t current_hour = timeClient.getHours();
     uint8_t current_minute = timeClient.getMinutes();
+    uint8_t second = currentSecond;
     
-    // Wyświetl cytat tylko gdy minute == 0 i to jest inna godzina niż poprzednio
-    if (current_minute == 0 && current_hour != last_hourly_quote_hour) {
+    // Wyświetl cytat tylko o HH:00:03 i tylko raz na godzinę
+    if (current_minute == 0 && second == 3 && current_hour != last_hourly_quote_hour) {
         last_hourly_quote_hour = current_hour;
         return true;
     }
@@ -448,6 +417,12 @@ void scheduler_loop() {
     }
     
     // 3. Zaplanowane cytaty
+    if (scheduled_quote_active) {
+        if (quote_suppressed_until_ms != 0U && millis() < quote_suppressed_until_ms) {
+            scheduled_quote_active = false;
+        }
+    }
+
     if (scheduled_quote_active) {
         scheduled_quote_active = false;  // Reset flag after processing
         char* quote = quotes_getRandom();
@@ -510,18 +485,18 @@ void scheduler_loop() {
         }
     }
     
-    // 5. Losowe cytaty
-    if (!quoteTriggeredThisLoop && shouldShowRandomQuote()) {
-        char* quote = quotes_getRandom();
+    // 5. Cytat godzinowy o HH:00:03
+    if (!quoteTriggeredThisLoop && shouldDisplayHourlyQuote()) {
+        const char* quote = quotes_getRandom();
         if (quote != NULL && strlen(quote) > 0) {
             last_quote_check = millis();
             last_quote_effect_count = display_getFunClockCompletedEffectsCount();
             display_mode = DISPLAY_MODE_QUOTE;
-            effects_quotes(quote);  // Aktualizuj currentQuote w effects.cpp
+            effects_quotes(quote);
             quoteTriggeredThisLoop = true;
-            Serial.printf("[SCHEDULER] Random quote triggered: %s\n", quote);
+            Serial.printf("[SCHEDULER] Hourly quote triggered at %02u:00:03: %s\n", currentHour, quote);
         }
     }
     
-    // 6. Trigger godzinowy cytatów wyłączony (dublował losowe cytaty)
+    // 6. Koniec pętli scheduler
 }

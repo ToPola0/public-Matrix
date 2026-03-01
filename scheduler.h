@@ -21,10 +21,10 @@ extern bool scheduled_quote_active;              // czy zaplanowany cytat powini
 // Funkcje scheduler'a
 void scheduler_init();
 void scheduler_loop();  // Wywoływane z main display loop
+void scheduler_snoozeQuotes(uint32_t durationMs);
 
 // Helper functions
 bool shouldRotateAnimation();
 bool shouldShowScheduledMessage();
-bool shouldShowRandomQuote();
 
 #endif // SCHEDULER_H

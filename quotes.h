@@ -6,8 +6,9 @@
 #include <LittleFS.h>
 
 #define QUOTES_FILE "/quotes.json"
-#define MAX_QUOTES 50
+#define MAX_QUOTES 200
 #define MAX_QUOTE_LENGTH 128
+#define QUOTES_JSON_DOC_SIZE ((MAX_QUOTES * (MAX_QUOTE_LENGTH + 32)) + 4096)
 
 extern char quotes[MAX_QUOTES][MAX_QUOTE_LENGTH];
 extern uint8_t numQuotes;

@@ -6,6 +6,7 @@
 #include "display.h"
 #include "effects.h"
 #include "quotes.h"
+#include "scheduler.h"
 #include "web_panel.h"
 #include "mqtt_manager.h"
 #include <ArduinoJson.h>
@@ -1860,7 +1861,7 @@ void WifiManager::handleSaveMqtt() {
 void WifiManager::handleApiQuotesList() {
     String quotesJson = quotes_getJson();
     // Extract quotes array
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(QUOTES_JSON_DOC_SIZE);
     DeserializationError error = deserializeJson(doc, quotesJson);
     
     if (error) {
@@ -1876,7 +1877,7 @@ void WifiManager::handleApiQuotesList() {
     }
     
     // Use DynamicJsonDocument for proper JSON serialization with escaping
-    DynamicJsonDocument responseDoc(6144);
+    DynamicJsonDocument responseDoc(QUOTES_JSON_DOC_SIZE);
     JsonArray respArr = responseDoc.createNestedArray();
     
     for (JsonVariant v : arr) {
@@ -1929,6 +1930,7 @@ void WifiManager::handleTriggerQuote() {
 
 void WifiManager::handleTriggerClockAnimation() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockAnimation();
     Serial.println("[WiFi] Trigger clock animation test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1936,6 +1938,7 @@ void WifiManager::handleTriggerClockAnimation() {
 
 void WifiManager::handleTriggerClockMirror() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockMirror();
     Serial.println("[WiFi] Trigger clock mirror test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1943,6 +1946,7 @@ void WifiManager::handleTriggerClockMirror() {
 
 void WifiManager::handleTriggerClockRainbow() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockRainbow();
     Serial.println("[WiFi] Trigger clock rainbow test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1950,6 +1954,7 @@ void WifiManager::handleTriggerClockRainbow() {
 
 void WifiManager::handleTriggerClockHoursSlide() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockHoursSlide();
     Serial.println("[WiFi] Trigger clock hours slide test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1957,6 +1962,7 @@ void WifiManager::handleTriggerClockHoursSlide() {
 
 void WifiManager::handleTriggerClockMatrixFont() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockMatrixFont();
     Serial.println("[WiFi] Trigger clock Predator GLYPH test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1964,6 +1970,7 @@ void WifiManager::handleTriggerClockMatrixFont() {
 
 void WifiManager::handleTriggerClockMatrixSideways() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockMatrixSideways();
     Serial.println("[WiFi] Trigger clock Matrix sideways test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1971,6 +1978,7 @@ void WifiManager::handleTriggerClockMatrixSideways() {
 
 void WifiManager::handleTriggerClockUpsideDown() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockUpsideDown();
     Serial.println("[WiFi] Trigger clock upside-down test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1978,6 +1986,7 @@ void WifiManager::handleTriggerClockUpsideDown() {
 
 void WifiManager::handleTriggerClockRotate180() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockRotate180();
     Serial.println("[WiFi] Trigger clock rotate-180 test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1985,6 +1994,7 @@ void WifiManager::handleTriggerClockRotate180() {
 
 void WifiManager::handleTriggerClockFullRotate() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockFullRotate();
     Serial.println("[WiFi] Trigger clock full-rotate test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1992,6 +2002,7 @@ void WifiManager::handleTriggerClockFullRotate() {
 
 void WifiManager::handleTriggerClockMiddleSwap() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockMiddleSwap();
     Serial.println("[WiFi] Trigger clock middle-swap test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -1999,6 +2010,7 @@ void WifiManager::handleTriggerClockMiddleSwap() {
 
 void WifiManager::handleTriggerClockPileup() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockPileup();
     Serial.println("[WiFi] Trigger clock pileup test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -2006,6 +2018,7 @@ void WifiManager::handleTriggerClockPileup() {
 
 void WifiManager::handleTriggerClockNegative() {
     display_mode = DISPLAY_MODE_CLOCK;
+    scheduler_snoozeQuotes(45000U);
     display_triggerFunClockNegative();
     Serial.println("[WiFi] Trigger clock negative test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
@@ -2335,11 +2348,11 @@ void WifiManager::handleApiQuotesConfig() {
 void WifiManager::handleExportQuotes() {
     String quotesJson = quotes_getJson();
     // quotes_getJson() returns {"quotes":[...]}, we need only the array
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(QUOTES_JSON_DOC_SIZE);
     deserializeJson(doc, quotesJson);
     JsonArray arr = doc["quotes"];
     
-    DynamicJsonDocument responseDoc(4096);
+    DynamicJsonDocument responseDoc(QUOTES_JSON_DOC_SIZE);
     responseDoc["success"] = true;
     JsonArray respArr = responseDoc.createNestedArray("quotes");
     for (JsonVariant v : arr) {
@@ -2361,7 +2374,7 @@ void WifiManager::handleImportQuotes() {
     String quotesJson = server->arg("quotes");
     
     // Parse JSON array
-    DynamicJsonDocument doc(6144);
+    DynamicJsonDocument doc(QUOTES_JSON_DOC_SIZE);
     DeserializationError error = deserializeJson(doc, quotesJson);
     
     if (error) {

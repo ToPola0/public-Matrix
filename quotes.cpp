@@ -2,6 +2,21 @@
 
 char quotes[MAX_QUOTES][MAX_QUOTE_LENGTH];
 uint8_t numQuotes = 0;
+static uint8_t quoteCooldown[MAX_QUOTES] = {0};
+static int16_t lastQuoteIndex = -1;
+
+static uint8_t computeQuoteCooldownSpan() {
+    if (numQuotes <= 3) return 1;
+    uint8_t span = (uint8_t)(numQuotes / 5U);
+    if (span < 2U) span = 2U;
+    if (span > 12U) span = 12U;
+    return span;
+}
+
+static void resetQuoteCooldownState() {
+    memset(quoteCooldown, 0, sizeof(quoteCooldown));
+    lastQuoteIndex = -1;
+}
 
 void quotes_normalizeForMatrix(const char* src, char* dst, size_t dstSize) {
     if (!src || !dst || dstSize == 0) return;
@@ -75,7 +90,7 @@ bool quotes_init() {
     
     if (!LittleFS.exists(QUOTES_FILE)) {
         // Tworzenie pliku z domyślnymi cytatami
-        StaticJsonDocument<4096> doc;
+        DynamicJsonDocument doc(QUOTES_JSON_DOC_SIZE);
         JsonArray arr = doc.createNestedArray("quotes");
         arr.add("Każdy dzień to nowa szansa");
         arr.add("Wiele rzeczy możemy osiągnąć");
@@ -103,7 +118,7 @@ bool quotes_load() {
     File f = LittleFS.open(QUOTES_FILE, "r");
     if (!f) return false;
     
-    StaticJsonDocument<4096> doc;
+    DynamicJsonDocument doc(QUOTES_JSON_DOC_SIZE);
     DeserializationError err = deserializeJson(doc, f);
     f.close();
     
@@ -114,6 +129,7 @@ bool quotes_load() {
     
     JsonArray arr = doc["quotes"];
     numQuotes = 0;
+    resetQuoteCooldownState();
     
     for (JsonVariant v : arr) {
         if (numQuotes >= MAX_QUOTES) break;
@@ -126,7 +142,7 @@ bool quotes_load() {
 }
 
 bool quotes_save() {
-    StaticJsonDocument<4096> doc;
+    DynamicJsonDocument doc(QUOTES_JSON_DOC_SIZE);
     JsonArray arr = doc.createNestedArray("quotes");
     
     for (uint8_t i = 0; i < numQuotes; i++) {
@@ -148,6 +164,7 @@ bool quotes_add(const char* quote) {
     if (strlen(quote) > MAX_QUOTE_LENGTH - 1) return false;
 
     strlcpy(quotes[numQuotes], quote, MAX_QUOTE_LENGTH);
+    quoteCooldown[numQuotes] = 0;
     numQuotes++;
     
     return quotes_save();
@@ -158,7 +175,16 @@ bool quotes_remove(uint8_t index) {
     
     for (uint8_t i = index; i < numQuotes - 1; i++) {
         strcpy(quotes[i], quotes[i + 1]);
+        quoteCooldown[i] = quoteCooldown[i + 1];
     }
+    quoteCooldown[numQuotes - 1] = 0;
+
+    if (lastQuoteIndex == (int16_t)index) {
+        lastQuoteIndex = -1;
+    } else if (lastQuoteIndex > (int16_t)index) {
+        lastQuoteIndex--;
+    }
+
     numQuotes--;
     
     return quotes_save();
@@ -166,8 +192,46 @@ bool quotes_remove(uint8_t index) {
 
 char* quotes_getRandom() {
     if (numQuotes == 0) return (char*)"Brak cytatów";
-    
-    uint8_t idx = random(0, numQuotes);
+
+    if (numQuotes == 1) {
+        lastQuoteIndex = 0;
+        return quotes[0];
+    }
+
+    for (uint8_t i = 0; i < numQuotes; i++) {
+        if (quoteCooldown[i] > 0) {
+            quoteCooldown[i]--;
+        }
+    }
+
+    uint8_t candidateIndices[MAX_QUOTES];
+    uint8_t candidateCount = 0;
+
+    for (uint8_t i = 0; i < numQuotes; i++) {
+        if (quoteCooldown[i] == 0U && (int16_t)i != lastQuoteIndex) {
+            candidateIndices[candidateCount++] = i;
+        }
+    }
+
+    if (candidateCount == 0U) {
+        for (uint8_t i = 0; i < numQuotes; i++) {
+            if ((int16_t)i != lastQuoteIndex) {
+                candidateIndices[candidateCount++] = i;
+            }
+        }
+    }
+
+    if (candidateCount == 0U) {
+        candidateIndices[candidateCount++] = 0;
+    }
+
+    uint8_t pick = (uint8_t)random(0, candidateCount);
+    uint8_t idx = candidateIndices[pick];
+
+    uint8_t cooldownSpan = computeQuoteCooldownSpan();
+    quoteCooldown[idx] = cooldownSpan;
+    lastQuoteIndex = idx;
+
     return quotes[idx];
 }
 
@@ -177,7 +241,7 @@ char* quotes_get(uint8_t index) {
 }
 
 String quotes_getJson() {
-    StaticJsonDocument<4096> doc;
+    DynamicJsonDocument doc(QUOTES_JSON_DOC_SIZE);
     JsonArray arr = doc.createNestedArray("quotes");
     
     for (uint8_t i = 0; i < numQuotes; i++) {

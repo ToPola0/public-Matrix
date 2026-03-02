@@ -9,8 +9,12 @@
 #include "scheduler.h"
 #include "web_panel.h"
 #include "mqtt_manager.h"
+#include "app_logger.h"
 #include <ArduinoJson.h>
 #include <stdlib.h>
+
+static const uint8_t kLampDefaultBrightness = 64;
+static const uint8_t kLampStartupBrightnessCap = 96;
 
 static bool parseHexColorString(const String& color, CRGB& outColor) {
     const char* raw = color.c_str();
@@ -49,7 +53,7 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
     int savedBrightness = preferences.getString("animBrightness", "200").toInt();
     savedBrightness = constrain(savedBrightness, 1, 255);
     String savedColor = preferences.getString("animColor", "#FF0000");
-    int lampBrightness = preferences.getString("lampBrightness", "180").toInt();
+    int lampBrightness = preferences.getString("lampBrightness", String((int)kLampDefaultBrightness)).toInt();
     lampBrightness = constrain(lampBrightness, 1, 255);
     String lampColor = preferences.getString("lampColor", "#FFFFFF");
     uint16_t clockAnimInterval = loadStoredClockAnimIntervalSeconds(preferences);
@@ -87,6 +91,11 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
 
     CRGB parsedLampColor = CRGB::White;
     bool hasLampColor = parseHexColorString(lampColor, parsedLampColor);
+
+    if (displayLampMode && lampBrightness > (int)kLampStartupBrightnessCap) {
+        lampBrightness = (int)kLampStartupBrightnessCap;
+        preferences.putString("lampBrightness", String(lampBrightness));
+    }
 
     uint8_t activeBrightness = displayLampMode ? (uint8_t)lampBrightness : (uint8_t)savedBrightness;
     CRGB activeColor = displayLampMode
@@ -218,6 +227,12 @@ bool wifi_manager_apply_lamp_config(bool lampEnabled,
         lampEnabled ? 1 : 0,
         normalizedBrightness,
         normalizedLampColor.c_str());
+    app_logf("LAMP shared: enabled=%d brightness=%u color=%s persist=%d modeApplied=%d",
+             lampEnabled ? 1 : 0,
+             normalizedBrightness,
+             normalizedLampColor.c_str(),
+             persistToPrefs ? 1 : 0,
+             modeApplied ? 1 : 0);
 
     return modeApplied;
 }
@@ -396,6 +411,8 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 .toast{min-width:220px;max-width:320px;padding:9px 10px;border-radius:8px;border-left:4px solid #4caf50;background:#15221a;color:#e9f8ed;box-shadow:0 6px 18px rgba(0,0,0,.35);opacity:0;transform:translateY(8px);transition:opacity .18s,transform .18s}
 .toast.show{opacity:1;transform:translateY(0)}
 .toast.err{border-left-color:#f44336;background:#2a1717;color:#ffe5e5}
+.logs-box{margin-top:8px;background:#0b121b;border:1px solid #2c3a4a;border-radius:8px;padding:8px;height:220px;overflow:auto;font-family:Consolas,monospace;font-size:.78em;line-height:1.35;white-space:pre-wrap}
+.logs-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 @media (max-width:480px){
     body{padding:7px}
     h1{font-size:1.05em}
@@ -420,6 +437,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button class='tb' onclick='showTab(5)'>Plan</button>
 <button class='tb' onclick='showTab(6)'>MQTT</button>
 <button class='tb' onclick='showTab(7)'>WiFi</button>
+<button class='tb' onclick='showTab(8)' style='display:none'>Logi</button>
 </div>
 
 <!-- TAB 0: INFO -->
@@ -437,6 +455,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <div class='i'><strong>OTA:</strong> <span id='sys-ota' class='pill'>--</span></div>
 <div class='i'><strong>RAM:</strong> <span id='sys-ram' class='pill'>--</span></div>
 </div>
+<button type='button' onclick='showTab(8)'>Logi</button>
 <button onclick='location.reload()'>Refresh</button>
 <button class='d' onclick='restartDevice()'>Restart urządzenia</button>
 <button onclick='logoutPanel()'>Wyloguj</button>
@@ -519,7 +538,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button type='button' id='lampToggleBtn' class='b-toggle off' onclick='toggleLampMode()'>Włącz lampę</button>
 </div>
 <label>Jasność lampy: <span id='lbv'>180</span></label>
-<input type='range' name='lampBrightness' id='lb' min='1' max='255' value='180' oninput='uLamp();saveLampConfigDebounced()'>
+<input type='range' name='lampBrightness' id='lb' min='1' max='255' value='64' oninput='uLamp();saveLampConfigDebounced()'>
 <label>Kolor lampy</label>
 <input type='color' name='lampColor' id='lc' value='#FFFFFF' oninput='saveLampConfigDebounced()' style='height:40px'>
 <hex-color-picker id='lcp' color='#FFFFFF' style='display:block;width:100%;height:160px'></hex-color-picker>
@@ -592,6 +611,18 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 </form>
 <button class='d' onclick='if(confirm("Wykonać pełny reset ustawień WiFi?"))location.href="/resetwifi"'>Reset WiFi (całość)</button>
 </div>
+
+<!-- TAB 8: LOGI -->
+<div class='tc'>
+<h2>Logi</h2>
+<div class='logs-controls'>
+<label><input type='checkbox' id='logsEnabled' style='width:auto' onchange='saveLogsConfig()'> Włącz logi</label>
+<button type='button' onclick='loadLogsNow(true)'>Odśwież</button>
+<button type='button' class='d' onclick='clearLogs()'>Wyczyść</button>
+<label><input type='checkbox' id='logsAuto' style='width:auto' checked> Auto</label>
+</div>
+<div id='logsBox' class='logs-box'>Brak logów</div>
+</div>
 </div>
 </body>
 <div id='toast-wrap' class='toast-wrap'></div>
@@ -604,6 +635,8 @@ document.head.appendChild(s);
 }
 
 let lampModeEnabled=false;
+let logsLastSeq=0;
+let logsPollTimer=null;
 
 function showTab(i){
 document.querySelectorAll('.tc').forEach(e=>e.classList.remove('a'));
@@ -616,6 +649,83 @@ if(i===5)loadSchedule();
 if(i===2)loadAnimationsConfig();
 if(i===6)loadMqttConfig();
 if(i===7)loadWifiConfig();
+if(i===8){loadLogsNow(true);startLogsPolling();}else{stopLogsPolling();}
+}
+
+function logsAppend(items,replaceAll=false){
+const box=document.getElementById('logsBox');
+if(!box)return;
+const atBottom=(box.scrollTop+box.clientHeight+8)>=box.scrollHeight;
+if(replaceAll){box.textContent='';}
+if(!Array.isArray(items)||items.length===0){
+if(replaceAll && box.textContent.trim()==='')box.textContent='Brak logów';
+return;
+}
+if(box.textContent==='Brak logów')box.textContent='';
+items.forEach(it=>{
+const ms=(it&&it.ms!==undefined)?it.ms:0;
+const msg=(it&&it.msg)?String(it.msg):'';
+box.textContent+=`[${ms}] ${msg}\n`;
+});
+if(atBottom){box.scrollTop=box.scrollHeight;}
+}
+
+function loadLogsNow(replaceAll=false){
+const since=replaceAll?0:logsLastSeq;
+const limit=replaceAll?120:40;
+fetch(`/api/logs?since=${since}&limit=${limit}`).then(r=>r.json()).then(d=>{
+if(document.getElementById('logsEnabled')){
+document.getElementById('logsEnabled').checked=(d.enabled===true);
+}
+if(replaceAll){
+logsLastSeq=0;
+}
+if(Array.isArray(d.logs) && d.logs.length>0){
+logsAppend(d.logs,replaceAll);
+const last=d.logs[d.logs.length-1];
+if(last&&last.seq)logsLastSeq=last.seq;
+}else if(replaceAll){
+logsAppend([],true);
+}
+}).catch(e=>console.log('Error:',e));
+}
+
+function startLogsPolling(){
+if(logsPollTimer)return;
+logsPollTimer=setInterval(()=>{
+const autoEl=document.getElementById('logsAuto');
+if(autoEl && autoEl.checked===false)return;
+const tabIndex=[...document.querySelectorAll('.tc')].findIndex(e=>e.classList.contains('a'));
+if(tabIndex!==8)return;
+loadLogsNow(false);
+},1000);
+}
+
+function stopLogsPolling(){
+if(!logsPollTimer)return;
+clearInterval(logsPollTimer);
+logsPollTimer=null;
+}
+
+function saveLogsConfig(){
+const enabled=(document.getElementById('logsEnabled')?.checked===true);
+const fd=new FormData();
+fd.append('logsEnabled',enabled?'1':'0');
+postJsonForm('/save-logs',fd).then(d=>{
+if(!d.success){showToast('❌ Błąd zapisu logów',false);}
+}).catch(e=>console.log('Error:',e));
+}
+
+function clearLogs(){
+fetch('/clear-logs',{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+logsLastSeq=0;
+logsAppend([],true);
+showToast('✓ Logi wyczyszczone',true);
+}else{
+showToast('❌ Błąd czyszczenia logów',false);
+}
+}).catch(e=>{console.log('Error:',e);showToast('❌ Błąd połączenia',false)});
 }
 
 const saveTimers={};
@@ -988,7 +1098,7 @@ u();
 function loadLampConfig(){
 fetch('/api/lamp-config').then(r=>r.json()).then(cfg=>{
 lampModeEnabled=(cfg.enabled===true);
-document.getElementById('lb').value=cfg.lampBrightness||180;
+document.getElementById('lb').value=cfg.lampBrightness||64;
 document.getElementById('lc').value=cfg.lampColor||'#FFFFFF';
 const cp=document.getElementById('lcp');
 if(cp){cp.color=document.getElementById('lc').value;}
@@ -1262,6 +1372,9 @@ void WifiManager::handleLogout() {
 
 void WifiManager::begin(WebServer* webServer) {
     preferences.begin("wifi", false);
+    bool logsEnabled = preferences.getUChar("logsEnabled", 1) == 1;
+    app_logger_set_enabled(logsEnabled);
+    app_logf("SYSTEM boot: logger=%s", logsEnabled ? "ON" : "OFF");
     loadConfig();
     applyStoredDisplaySettings(preferences);
     applyStoredMqttSettings(preferences);
@@ -1297,6 +1410,7 @@ void WifiManager::begin(WebServer* webServer) {
     }
     
     Serial.println("[WiFi] Initialization complete");
+    app_log("SYSTEM init complete");
 }
 
 void WifiManager::loop() {
@@ -1320,6 +1434,10 @@ void WifiManager::loop() {
     if (staConnected) {
         if (!staWasConnected) {
             staConnectedSinceMs = nowMs;
+            app_logf("WIFI connected: ssid=%s ip=%s rssi=%d",
+                     config.ssid.c_str(),
+                     WiFi.localIP().toString().c_str(),
+                     WiFi.RSSI());
         }
 
         // Show IP only once after boot (never again until restart)
@@ -1343,6 +1461,9 @@ void WifiManager::loop() {
             ipShownEver = true;
         }
     } else {
+        if (staWasConnected) {
+            app_log("WIFI disconnected");
+        }
         staConnectedSinceMs = 0;
     }
     staWasConnected = staConnected;
@@ -1357,6 +1478,7 @@ void WifiManager::loop() {
             apEnabled = false;
             apDisabledAfterSta = true;
             Serial.println("[WiFi] AP disabled - stable STA connection maintained");
+            app_log("WIFI AP disabled after stable STA");
         }
     }
     
@@ -1416,6 +1538,7 @@ void WifiManager::setupAP() {
     WiFi.softAPConfig(WIFI_AP_IP, WIFI_AP_IP, IPAddress(255,255,255,0));
     Serial.print("[WiFi] AP IP: ");
     Serial.println(WiFi.softAPIP());
+    app_logf("WIFI AP started: ssid=%s ip=%s", WIFI_AP_SSID, WiFi.softAPIP().toString().c_str());
 }
 
 void WifiManager::setupStation() {
@@ -1427,6 +1550,7 @@ void WifiManager::setupStation() {
     WiFi.begin(config.ssid.c_str(), config.password.c_str());
     Serial.print("[WiFi] Łączenie z SSID: ");
     Serial.println(config.ssid.c_str());
+    app_logf("WIFI STA connect start: ssid=%s", config.ssid.c_str());
 }
 
 void WifiManager::setupWebServer(WebServer* webServer) {
@@ -1457,13 +1581,16 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/api/wifi-scan", authWrap(&WifiManager::handleApiWifiScan));
     server->on("/api/mqtt-config", authWrap(&WifiManager::handleApiMqttConfig));
     server->on("/api/lamp-config", authWrap(&WifiManager::handleApiLampConfig));
+    server->on("/api/logs", authWrap(&WifiManager::handleApiLogs));
     server->on("/api/ping", [this]() {
         if (!ensureAuthenticated()) return;
         server->send(200, "text/plain", "pong");
     });
     server->on("/save-quote", HTTP_POST, authWrap(&WifiManager::handleSaveQuote));
     server->on("/save-mqtt", HTTP_POST, authWrap(&WifiManager::handleSaveMqtt));
+    server->on("/save-logs", HTTP_POST, authWrap(&WifiManager::handleSaveLogsConfig));
     server->on("/save-lamp", HTTP_POST, authWrap(&WifiManager::handleSaveLampConfig));
+    server->on("/clear-logs", HTTP_POST, authWrap(&WifiManager::handleClearLogs));
     server->on("/trigger-quote", HTTP_POST, authWrap(&WifiManager::handleTriggerQuote));
     server->on("/trigger-clock-anim", HTTP_POST, authWrap(&WifiManager::handleTriggerClockAnimation));
     server->on("/trigger-clock-mirror", HTTP_POST, authWrap(&WifiManager::handleTriggerClockMirror));
@@ -1532,6 +1659,7 @@ void WifiManager::handleSave() {
         preferences.putString("apPassword", apPassword);
         Serial.print("[WiFi] AP/WWW haslo zmienione na: ");
         Serial.println(apPassword);
+        app_log("WIFI AP/WWW password changed");
     }
     
     auto sendRestartPage = [this](const char* title) {
@@ -1589,6 +1717,12 @@ void WifiManager::handleSave() {
         Serial.print(" Subnet: ");
         Serial.println(requestedStaticSubnet.c_str());
         
+        app_logf("WIFI save+restart (offline): ssid=%s dhcp=%d staticIP=%s gw=%s",
+             newConfig.ssid.c_str(),
+             dhcpEnabled ? 1 : 0,
+             requestedStaticIP.c_str(),
+             requestedStaticGateway.c_str());
+
         sendRestartPage("WiFi zapisano");
         delay(500);
         restartESP();
@@ -1615,6 +1749,12 @@ void WifiManager::handleSave() {
         Serial.print(" Subnet: ");
         Serial.println(requestedStaticSubnet.c_str());
         
+        app_logf("WIFI save+restart: ssid=%s dhcp=%d staticIP=%s gw=%s",
+                 newConfig.ssid.c_str(),
+                 dhcpEnabled ? 1 : 0,
+                 requestedStaticIP.c_str(),
+                 requestedStaticGateway.c_str());
+
         sendRestartPage("Ustawienia zapisane");
         delay(500);
         restartESP();
@@ -1623,6 +1763,7 @@ void WifiManager::handleSave() {
 
 void WifiManager::handleResetWifi() {
     Serial.println("[WiFi] Reset konfiguracji WiFi!");
+    app_log("WIFI full reset requested");
     preferences.clear();
     server->send(200, "text/html", "<html><body><h1>WiFi reset. Restart...</h1></body></html>");
     delay(500);
@@ -1631,6 +1772,7 @@ void WifiManager::handleResetWifi() {
 
 void WifiManager::handleForgetWifi() {
     Serial.println("[WiFi] Usuwanie zapisanej sieci WiFi");
+    app_log("WIFI forget saved network requested");
 
     preferences.remove("ssid");
     preferences.remove("password");
@@ -1649,6 +1791,7 @@ void WifiManager::handleForgetWifi() {
 }
 
 void WifiManager::handleRestart() {
+    app_log("SYSTEM restart requested from WWW");
     server->send(200, "text/html", "<html><body><h1>Restart ESP...</h1></body></html>");
     delay(500);
     restartESP();
@@ -1686,6 +1829,7 @@ void WifiManager::reconnectIfNeeded() {
             apEnabled = true;
             apDisabledAfterSta = false;
             Serial.println("[WiFi] STA connection lost - AP mode re-enabled for recovery");
+            app_log("WIFI AP re-enabled after STA loss");
         }
         
         unsigned long now = millis();
@@ -1694,6 +1838,7 @@ void WifiManager::reconnectIfNeeded() {
             WiFi.begin(config.ssid.c_str(), config.password.c_str());
             Serial.print("[WiFi] Ponowne łączenie z SSID: ");
             Serial.println(config.ssid.c_str());
+            app_logf("WIFI reconnect attempt: ssid=%s", config.ssid.c_str());
             lastReconnectAttempt = now;
         }
     }
@@ -1833,7 +1978,7 @@ void WifiManager::handleApiAnimationsConfig() {
 
 void WifiManager::handleApiLampConfig() {
     bool lampEnabled = preferences.getUChar("displayLampMode", 0) == 1;
-    int lampBrightness = constrain(preferences.getString("lampBrightness", "180").toInt(), 1, 255);
+    int lampBrightness = constrain(preferences.getString("lampBrightness", String((int)kLampDefaultBrightness)).toInt(), 1, 255);
     String lampColor = preferences.getString("lampColor", "#FFFFFF");
 
     String json = "{";
@@ -1842,6 +1987,56 @@ void WifiManager::handleApiLampConfig() {
     json += "\"lampColor\":\"" + lampColor + "\"";
     json += "}";
     server->send(200, "application/json", json);
+}
+
+void WifiManager::handleApiLogs() {
+    uint32_t since = 0;
+    if (server->hasArg("since")) {
+        since = (uint32_t)server->arg("since").toInt();
+    }
+
+    uint16_t limit = 80;
+    if (server->hasArg("limit")) {
+        int requested = server->arg("limit").toInt();
+        requested = constrain(requested, 1, 200);
+        limit = (uint16_t)requested;
+    }
+
+    String json;
+    app_logger_build_json(since, limit, json);
+    server->send(200, "application/json", json);
+}
+
+void WifiManager::handleSaveLogsConfig() {
+    auto boolArgValue = [this](const char* key, bool fallback) -> bool {
+        if (!server->hasArg(key)) return fallback;
+        String v = server->arg(key);
+        v.toLowerCase();
+        return (v == "1" || v == "true" || v == "on" || v == "yes");
+    };
+
+    bool enabled = boolArgValue("logsEnabled", app_logger_is_enabled());
+    if (!enabled) {
+        app_log("LOGS config changed: OFF");
+    }
+
+    preferences.putUChar("logsEnabled", enabled ? 1 : 0);
+    app_logger_set_enabled(enabled);
+
+    if (enabled) {
+        app_log("LOGS config changed: ON");
+    }
+
+    String response = "{\"success\":true,\"enabled\":";
+    response += (enabled ? "true" : "false");
+    response += "}";
+    server->send(200, "application/json", response);
+}
+
+void WifiManager::handleClearLogs() {
+    app_log("LOGS clear requested from WWW");
+    app_logger_clear();
+    server->send(200, "application/json", "{\"success\":true}");
 }
 
 void WifiManager::handleApiNetworkInfo() {
@@ -1956,6 +2151,12 @@ void WifiManager::handleSaveMqtt() {
 
     mqtt_manager_configure(enabled, host.c_str(), port, user.c_str(), pass.c_str(), prefix.c_str());
     mqtt_manager_publish_now();
+    app_logf("MQTT config saved: enabled=%d host=%s port=%u prefix=%s user=%s",
+             enabled ? 1 : 0,
+             host.c_str(),
+             port,
+             prefix.c_str(),
+             user.c_str());
 
     String json = "{";
     json += "\"success\":true,";
@@ -2187,6 +2388,10 @@ void WifiManager::handleSaveTime() {
         
         Serial.printf("[WiFi] NTP Server: %s\n", ntpServer.c_str());
         Serial.printf("[WiFi] Timezone raw=%ld, applied=%lds\n", (long)tzRaw, (long)tzSeconds);
+        app_logf("TIME config saved: ntp=%s tz_raw=%ld tz_sec=%ld",
+             ntpServer.c_str(),
+             (long)tzRaw,
+             (long)tzSeconds);
         mqtt_manager_publish_now();
         
         // Zwróć JSON zamiast HTML
@@ -2354,7 +2559,7 @@ void WifiManager::handleSaveLampConfig() {
     bool lampEnabled = boolArgValue("displayLampMode", preferences.getUChar("displayLampMode", 0) == 1);
     int lampBrightness = server->hasArg("lampBrightness")
         ? constrain(server->arg("lampBrightness").toInt(), 1, 255)
-        : constrain(preferences.getString("lampBrightness", "180").toInt(), 1, 255);
+        : constrain(preferences.getString("lampBrightness", String((int)kLampDefaultBrightness)).toInt(), 1, 255);
     String lampColor = server->hasArg("lampColor") ? server->arg("lampColor") : preferences.getString("lampColor", "#FFFFFF");
     String normalizedLampColor;
     bool modeApplied = wifi_manager_apply_lamp_config(lampEnabled,
@@ -2367,6 +2572,11 @@ void WifiManager::handleSaveLampConfig() {
         lampEnabled ? 1 : 0,
         lampBrightness,
         normalizedLampColor.c_str());
+    app_logf("WWW /save-lamp: enabled=%d brightness=%d color=%s modeApplied=%d",
+             lampEnabled ? 1 : 0,
+             lampBrightness,
+             normalizedLampColor.c_str(),
+             modeApplied ? 1 : 0);
     String lampResponse = "{\"success\":true,\"message\":\"Ustawienia lampy zapisane\",\"modeApplied\":";
     lampResponse += (modeApplied ? "true" : "false");
     lampResponse += "}";

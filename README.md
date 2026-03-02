@@ -52,8 +52,12 @@ W pliku config.h ustaw (opcjonalnie, bo i tak możesz skonfigurować z panelu WW
 ## 5. Wgranie firmware
 
 1. Wybierz płytkę ESP32-S3 i poprawny port COM.
-2. Skompiluj i wgraj projekt.
-3. Po starcie urządzenie uruchamia panel konfiguracyjny WiFi/AP, jeśli nie ma połączenia.
+2. Ustaw opcje płytki (Arduino IDE):
+	- PSRAM: OPI PSRAM
+	- Flash Size: 16MB (128Mb)
+	- Partition Scheme: Custom
+3. Skompiluj i wgraj projekt.
+4. Po starcie urządzenie uruchamia panel konfiguracyjny WiFi/AP, jeśli nie ma połączenia.
 
 ## 6. Panel WWW
 

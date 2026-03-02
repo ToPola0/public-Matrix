@@ -9,6 +9,7 @@
 #include "display.h"
 #include "effects.h"
 #include "quotes.h"
+#include "app_logger.h"
 #include "wifi_manager.h"
 
 static const char* kDefaultApPassword = "12345678";
@@ -64,7 +65,7 @@ static uint32_t mqttHaNextDisplayMs = 0;
 
 static bool mqttLampConfigLoaded = false;
 static bool mqttLampEnabled = false;
-static uint8_t mqttLampBrightness = 180;
+static uint8_t mqttLampBrightness = 64;
 static CRGB mqttLampColor = CRGB::White;
 static bool mqttApPasswordVisible = false;
 static String mqttApPasswordCached = String(kDefaultApPassword);
@@ -304,7 +305,7 @@ static void mqttLoadLampConfigIfNeeded() {
     Preferences prefs;
     prefs.begin("wifi", true);
     mqttLampEnabled = prefs.getUChar("displayLampMode", 0) == 1;
-    mqttLampBrightness = (uint8_t)constrain(prefs.getString("lampBrightness", "180").toInt(), 1, 255);
+    mqttLampBrightness = (uint8_t)constrain(prefs.getString("lampBrightness", "64").toInt(), 1, 255);
     String lampColor = prefs.getString("lampColor", "#FFFFFF");
     prefs.end();
 
@@ -345,6 +346,11 @@ static void mqttApplyLampConfigUsingShared() {
     if (mqttParseHexColor(normalizedLampColor, parsedColor)) {
         mqttLampColor = parsedColor;
     }
+
+    app_logf("MQTT lamp apply: enabled=%d brightness=%u color=%s",
+             mqttLampEnabled ? 1 : 0,
+             mqttLampBrightness,
+             normalizedLampColor.c_str());
 }
 
 static String mqttBuildDeviceId() {
@@ -505,6 +511,7 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
         String requested = String(temp);
         requested.trim();
         requested.toLowerCase();
+        app_logf("MQTT mode command: %s", requested.c_str());
         mqttLoadLampConfigIfNeeded();
 
         if (requested == "lamp") {
@@ -543,6 +550,7 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
         requested.toUpperCase();
         bool enabled = (requested == "ON" || requested == "1" || requested == "TRUE");
         Serial.printf("[MQTT] Pokaz haslo AP command: %s -> %s\n", requested.c_str(), enabled ? "ON" : "OFF");
+        app_logf("MQTT ap_password_show command: %s", enabled ? "ON" : "OFF");
         mqttApPasswordVisible = enabled;
 
         Preferences prefs;
@@ -574,6 +582,7 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
                 prefs.end();
             }
             Serial.println("[MQTT] AP haslo zapisane z encji tekstowej (aktywne po restarcie)");
+            app_log("MQTT AP password updated via entity");
         }
 
         mqttPublishApPasswordState();
@@ -582,6 +591,7 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
     }
 
     if (topicStr == mqttQuoteTriggerCommandTopic) {
+        app_log("MQTT quote trigger command");
         mqttTriggerQuoteTest();
         mqttPublishState();
         mqttPublishModeState();
@@ -664,6 +674,10 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
         }
 
         if (changed) {
+            app_logf("MQTT lamp command: enabled=%d brightness=%u color=%s",
+                     mqttLampEnabled ? 1 : 0,
+                     mqttLampBrightness,
+                     mqttColorToHex(mqttLampColor).c_str());
             mqttApplyLampConfigUsingShared();
 
             mqttPublishLampState();
@@ -1054,14 +1068,23 @@ void mqtt_manager_configure(bool enabled,
 
     mqttClient.setServer(mqttHost.c_str(), mqttPort);
     mqttDiscoveryPublished = false;
+    app_logf("MQTT configure: enabled=%d host=%s port=%u prefix=%s user=%s",
+             mqttEnabled ? 1 : 0,
+             mqttHost.c_str(),
+             mqttPort,
+             mqttDiscoveryPrefix.c_str(),
+             mqttUser.c_str());
 
     if (!mqttEnabled && mqttClient.connected()) {
         mqttClient.publish(mqttAvailabilityTopic.c_str(), "offline", true);
         mqttClient.disconnect();
+        app_log("MQTT disconnected (disabled)");
     }
 }
 
 void mqtt_manager_loop() {
+    static bool mqttWasConnected = false;
+
     if (!mqttEnabled) return;
     if (mqttHost.length() == 0) return;
     if (WiFi.status() != WL_CONNECTED) return;
@@ -1094,8 +1117,11 @@ void mqtt_manager_loop() {
         }
 
         if (!connected) {
+            app_logf("MQTT connect failed: state=%d host=%s port=%u", mqttClient.state(), mqttHost.c_str(), mqttPort);
             return;
         }
+
+        app_logf("MQTT connected: host=%s port=%u", mqttHost.c_str(), mqttPort);
 
         mqttClient.publish(mqttAvailabilityTopic.c_str(), "online", true);
         mqttPublishDiscoveryCleanup();
@@ -1117,6 +1143,13 @@ void mqtt_manager_loop() {
         mqttSubscribeHaEntityTopics();
         mqttPublishExtraStates();
         mqttLastStatePublishMs = now;
+    }
+
+    if (!mqttWasConnected && mqttClient.connected()) {
+        mqttWasConnected = true;
+    } else if (mqttWasConnected && !mqttClient.connected()) {
+        mqttWasConnected = false;
+        app_log("MQTT disconnected");
     }
 
     mqttClient.loop();

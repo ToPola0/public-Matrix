@@ -49,10 +49,12 @@ private:
     void handleApiMqttConfig();
     void handleApiHaEntitiesConfig();
     void handleApiLampConfig();
+    void handleApiLogs();
     void handleApiQuotesList();
     void handleApiNtpConfig();
     void handleSaveQuote();
     void handleSaveMqtt();
+    void handleSaveLogsConfig();
     void handleSaveHaEntities();
     void handleSaveLampConfig();
     void handleTriggerQuote();
@@ -78,6 +80,7 @@ private:
     void handleApiQuotesConfig();
     void handleApiAnimationsConfig();
     void handleApiOtaStatus();
+    void handleClearLogs();
     void handleLogout();
     void handleOtaUpload();
     void handleApiColorsPalette();

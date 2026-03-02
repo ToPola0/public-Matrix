@@ -101,4 +101,10 @@ private:
     String apPassword;
 };
 
+bool wifi_manager_apply_lamp_config(bool lampEnabled,
+                                    uint8_t lampBrightness,
+                                    const String& lampColorInput,
+                                    bool persistToPrefs,
+                                    String* outNormalizedLampColor = nullptr);
+
 #endif // WIFI_MANAGER_H

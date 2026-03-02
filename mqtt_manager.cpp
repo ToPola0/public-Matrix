@@ -9,6 +9,7 @@
 #include "display.h"
 #include "effects.h"
 #include "quotes.h"
+#include "wifi_manager.h"
 
 static const char* kDefaultApPassword = "12345678";
 static const char* kHiddenApPasswordPlaceholder = "********";
@@ -317,15 +318,6 @@ static void mqttLoadLampConfigIfNeeded() {
     mqttLampConfigLoaded = true;
 }
 
-static void mqttSaveLampConfig() {
-    Preferences prefs;
-    prefs.begin("wifi", false);
-    prefs.putUChar("displayLampMode", mqttLampEnabled ? 1 : 0);
-    prefs.putString("lampBrightness", String((int)mqttLampBrightness));
-    prefs.putString("lampColor", mqttColorToHex(mqttLampColor));
-    prefs.end();
-}
-
 static void mqttLoadAnimVisualsFromPrefs(uint8_t& outBrightness, CRGB& outColor) {
     Preferences prefs;
     prefs.begin("wifi", true);
@@ -341,41 +333,18 @@ static void mqttLoadAnimVisualsFromPrefs(uint8_t& outBrightness, CRGB& outColor)
     }
 }
 
-static void mqttApplyFunClockEffectsFromPrefs() {
-    Preferences prefs;
-    prefs.begin("wifi", true);
-    bool fxMove = prefs.getUChar("fxMove", 1) == 1;
-    bool fxMirror = prefs.getUChar("fxMirror", 1) == 1;
-    bool fxRainbow = prefs.getUChar("fxRainbow", 1) == 1;
-    bool fxHoursSlide = prefs.getUChar("fxHoursSlide", 1) == 1;
-    bool fxMatrixFont = prefs.getUChar("fxMatrixFont", 1) == 1;
-    bool fxMatrixSideways = prefs.getUChar("fxMatrixSideways", 1) == 1;
-    bool fxUpsideDown = prefs.getUChar("fxUpsideDown", 1) == 1;
-    bool fxRotate180 = prefs.getUChar("fxRotate180", 1) == 1;
-    bool fxFullRotate = prefs.getUChar("fxFullRotate", 1) == 1;
-    bool fxMiddleSwap = prefs.getUChar("fxMiddleSwap", 1) == 1;
-    bool fxSplitHalves = prefs.getUChar("fxSplitHalves", 1) == 1;
-    bool fxTetris = prefs.getUChar("fxTetris", 1) == 1;
-    bool fxPileup = prefs.getUChar("fxPileup", 1) == 1;
-    bool fxNegative = prefs.getUChar("displayNegative", 0) == 1;
-    prefs.end();
+static void mqttApplyLampConfigUsingShared() {
+    String normalizedLampColor;
+    wifi_manager_apply_lamp_config(mqttLampEnabled,
+                                   mqttLampBrightness,
+                                   mqttColorToHex(mqttLampColor),
+                                   true,
+                                   &normalizedLampColor);
 
-    display_setFunClockEffectsEnabled(
-        fxMove,
-        fxMirror,
-        fxRainbow,
-        fxHoursSlide,
-        fxMatrixFont,
-        fxMatrixSideways,
-        fxUpsideDown,
-        fxRotate180,
-        fxFullRotate,
-        fxMiddleSwap,
-        fxSplitHalves,
-        fxTetris,
-        fxPileup,
-        fxNegative);
-    display_setNegative(false);
+    CRGB parsedColor;
+    if (mqttParseHexColor(normalizedLampColor, parsedColor)) {
+        mqttLampColor = parsedColor;
+    }
 }
 
 static String mqttBuildDeviceId() {
@@ -475,6 +444,7 @@ static void mqttPublishExtraStates() {
 
 static void mqttPublishLampState() {
     if (!mqttClient.connected()) return;
+    mqttLampConfigLoaded = false;
     mqttLoadLampConfigIfNeeded();
 
     StaticJsonDocument<192> doc;
@@ -522,44 +492,6 @@ static void mqttApplyColor(uint8_t r, uint8_t g, uint8_t b) {
     display_setColor(newColor);
 }
 
-static void mqttRestoreClockVisualsFromPrefs() {
-    Preferences prefs;
-    prefs.begin("wifi", true);
-    int animBrightness = constrain(prefs.getString("animBrightness", "200").toInt(), 1, 255);
-    String animColor = prefs.getString("animColor", "#FF0000");
-    prefs.end();
-
-    display_setBrightness((uint8_t)animBrightness);
-
-    CRGB parsed;
-    if (mqttParseHexColor(animColor, parsed)) {
-        mqttApplyColor(parsed.r, parsed.g, parsed.b);
-    }
-}
-
-static bool mqttCanApplyBaseDisplayModeChange() {
-    if (display_mode == DISPLAY_MODE_QUOTE) return false;
-    if (message_active) return false;
-    return true;
-}
-
-static void mqttApplyLampModeFromCurrentConfig() {
-    if (mqttLampEnabled) {
-        if (mqttCanApplyBaseDisplayModeChange()) {
-            display_mode = DISPLAY_MODE_LAMP;
-        }
-        display_setBrightness(mqttLampBrightness);
-        globalColor = mqttLampColor;
-        display_setColor(mqttLampColor);
-        return;
-    }
-
-    if (mqttCanApplyBaseDisplayModeChange()) {
-        display_mode = DISPLAY_MODE_CLOCK;
-    }
-    mqttRestoreClockVisualsFromPrefs();
-}
-
 static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
     if (!topic || length == 0) return;
     String topicStr(topic);
@@ -573,32 +505,26 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
         String requested = String(temp);
         requested.trim();
         requested.toLowerCase();
+        mqttLoadLampConfigIfNeeded();
 
         if (requested == "lamp") {
-            mqttLoadLampConfigIfNeeded();
             mqttLampEnabled = true;
-            mqttSaveLampConfig();
-            mqttApplyLampModeFromCurrentConfig();
-            mqttPublishLampState();
+            mqttApplyLampConfigUsingShared();
         } else if (requested == "animation") {
-            mqttLoadLampConfigIfNeeded();
             mqttLampEnabled = false;
-            mqttSaveLampConfig();
+            mqttApplyLampConfigUsingShared();
             uint8_t animBrightness;
             CRGB animColor;
             mqttLoadAnimVisualsFromPrefs(animBrightness, animColor);
             display_setBrightness(animBrightness);
             mqttApplyColor(animColor.r, animColor.g, animColor.b);
             display_mode = DISPLAY_MODE_ANIMATION;
-            mqttPublishLampState();
         } else {
-            mqttLoadLampConfigIfNeeded();
             mqttLampEnabled = false;
-            mqttSaveLampConfig();
-            mqttApplyLampModeFromCurrentConfig();
-            mqttPublishLampState();
+            mqttApplyLampConfigUsingShared();
         }
 
+        mqttPublishLampState();
         mqttPublishModeState();
         mqttPublishLightState();
         mqttPublishExtraStates();
@@ -738,8 +664,7 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
         }
 
         if (changed) {
-            mqttSaveLampConfig();
-            mqttApplyLampModeFromCurrentConfig();
+            mqttApplyLampConfigUsingShared();
 
             mqttPublishLampState();
             mqttPublishModeState();

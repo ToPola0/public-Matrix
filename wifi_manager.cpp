@@ -149,6 +149,79 @@ static void applyStoredMqttSettings(Preferences& preferences) {
         mqttPrefix.c_str());
 }
 
+bool wifi_manager_apply_lamp_config(bool lampEnabled,
+                                    uint8_t lampBrightness,
+                                    const String& lampColorInput,
+                                    bool persistToPrefs,
+                                    String* outNormalizedLampColor) {
+    uint8_t normalizedBrightness = (uint8_t)constrain((int)lampBrightness, 1, 255);
+    String normalizedLampColor = lampColorInput;
+    normalizedLampColor.trim();
+
+    CRGB parsedLampColor;
+    if (!parseHexColorString(normalizedLampColor, parsedLampColor)) {
+        normalizedLampColor = "#FFFFFF";
+        parsedLampColor = CRGB::White;
+    }
+
+    if (outNormalizedLampColor) {
+        *outNormalizedLampColor = normalizedLampColor;
+    }
+
+    Preferences prefs;
+    bool prefsOpened = prefs.begin("wifi", false);
+    if (persistToPrefs && prefsOpened) {
+        prefs.putUChar("displayLampMode", lampEnabled ? 1 : 0);
+        prefs.putString("lampBrightness", String(normalizedBrightness).c_str());
+        prefs.putString("lampColor", normalizedLampColor.c_str());
+    }
+
+    bool modeApplied = false;
+    if (lampEnabled) {
+        if (canApplyBaseDisplayModeChange()) {
+            display_mode = DISPLAY_MODE_LAMP;
+            modeApplied = true;
+        }
+        display_setBrightness(normalizedBrightness);
+        globalColor = parsedLampColor;
+        display_setColor(parsedLampColor);
+    } else {
+        if (canApplyBaseDisplayModeChange()) {
+            display_mode = DISPLAY_MODE_CLOCK;
+            modeApplied = true;
+        }
+
+        int animBrightness = 200;
+        String animColor = "#FF0000";
+        if (prefsOpened) {
+            animBrightness = constrain(prefs.getString("animBrightness", "200").toInt(), 1, 255);
+            animColor = prefs.getString("animColor", "#FF0000");
+        }
+
+        display_setBrightness((uint8_t)animBrightness);
+        CRGB parsedAnimColor;
+        if (parseHexColorString(animColor, parsedAnimColor)) {
+            animation_color = parsedAnimColor;
+            clock_color = parsedAnimColor;
+            quote_color = parsedAnimColor;
+            message_color = parsedAnimColor;
+            globalColor = parsedAnimColor;
+            display_setColor(parsedAnimColor);
+        }
+    }
+
+    if (prefsOpened) {
+        prefs.end();
+    }
+
+    Serial.printf("[WiFi] Lamp config(shared): enabled=%d brightness=%d color=%s\n",
+        lampEnabled ? 1 : 0,
+        normalizedBrightness,
+        normalizedLampColor.c_str());
+
+    return modeApplied;
+}
+
 static void drawOtaProgressOnMatrix(size_t writtenBytes, size_t totalBytes, bool errorState = false, bool forceRedraw = false) {
     static int16_t lastPercentShown = -1;
     static bool lastErrorState = false;
@@ -2283,49 +2356,17 @@ void WifiManager::handleSaveLampConfig() {
         ? constrain(server->arg("lampBrightness").toInt(), 1, 255)
         : constrain(preferences.getString("lampBrightness", "180").toInt(), 1, 255);
     String lampColor = server->hasArg("lampColor") ? server->arg("lampColor") : preferences.getString("lampColor", "#FFFFFF");
-
-    CRGB parsedLampColor;
-    if (!parseHexColorString(lampColor, parsedLampColor)) {
-        lampColor = "#FFFFFF";
-        parsedLampColor = CRGB::White;
-    }
-
-    preferences.putUChar("displayLampMode", lampEnabled ? 1 : 0);
-    preferences.putString("lampBrightness", String(lampBrightness).c_str());
-    preferences.putString("lampColor", lampColor.c_str());
-
-    bool modeApplied = false;
-    if (lampEnabled) {
-        if (canApplyBaseDisplayModeChange()) {
-            display_mode = DISPLAY_MODE_LAMP;
-            modeApplied = true;
-        }
-        display_setBrightness((uint8_t)lampBrightness);
-        globalColor = parsedLampColor;
-        display_setColor(parsedLampColor);
-    } else {
-        if (canApplyBaseDisplayModeChange()) {
-            display_mode = DISPLAY_MODE_CLOCK;
-            modeApplied = true;
-        }
-        int animBrightness = constrain(preferences.getString("animBrightness", "200").toInt(), 1, 255);
-        String animColor = preferences.getString("animColor", "#FF0000");
-        display_setBrightness((uint8_t)animBrightness);
-        CRGB parsedAnimColor;
-        if (parseHexColorString(animColor, parsedAnimColor)) {
-            animation_color = parsedAnimColor;
-            clock_color = parsedAnimColor;
-            quote_color = parsedAnimColor;
-            message_color = parsedAnimColor;
-            globalColor = parsedAnimColor;
-            display_setColor(parsedAnimColor);
-        }
-    }
+    String normalizedLampColor;
+    bool modeApplied = wifi_manager_apply_lamp_config(lampEnabled,
+                                                      (uint8_t)lampBrightness,
+                                                      lampColor,
+                                                      true,
+                                                      &normalizedLampColor);
 
     Serial.printf("[WiFi] Lamp config: enabled=%d brightness=%d color=%s\n",
         lampEnabled ? 1 : 0,
         lampBrightness,
-        lampColor.c_str());
+        normalizedLampColor.c_str());
     String lampResponse = "{\"success\":true,\"message\":\"Ustawienia lampy zapisane\",\"modeApplied\":";
     lampResponse += (modeApplied ? "true" : "false");
     lampResponse += "}";

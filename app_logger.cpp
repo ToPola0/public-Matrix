@@ -75,7 +75,7 @@ void app_log(const String& message) {
 }
 
 void app_logf(const char* fmt, ...) {
-    if (!s_enabled || !fmt) return;
+    if (!fmt) return;
 
     char buffer[kLogMessageMaxLen + 1];
     va_list args;
@@ -83,7 +83,13 @@ void app_logf(const char* fmt, ...) {
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
 
-    storeLogLine(buffer);
+    // Always print to Serial for real-time visibility
+    Serial.println(buffer);
+    
+    // Also store in buffer if enabled
+    if (s_enabled) {
+        storeLogLine(buffer);
+    }
 }
 
 void app_logger_build_json(uint32_t sinceSeq, uint16_t limit, String& outJson) {

@@ -14,6 +14,7 @@ bool scheduled_message_active = false;
 char current_scheduled_message[128] = "";
 unsigned long last_scheduler_minute_check = 0;
 uint8_t last_hourly_quote_hour = 255;  // Tracking dla cytatów o pełnych godzinach
+bool ntp_sync_complete = false;  // NTP synchronization complete, safe to use time
 
 // Tracking dla harmonogramu z JSON
 Preferences schedulePreferences;
@@ -352,6 +353,11 @@ bool shouldDisplayHourlyQuote() {
         return false;
     }
 
+    // Nie wyświetlaj cytatów dopóki NTP się nie zsynchronizuje
+    if (!ntp_sync_complete) {
+        return false;
+    }
+
     if (quote_suppressed_until_ms != 0U && millis() < quote_suppressed_until_ms) {
         return false;
     }
@@ -378,8 +384,19 @@ bool shouldDisplayHourlyQuote() {
     return false;
 }
 
+// === HELPER: Initialize NTP sync tracking ===
+void scheduler_initNtpTracking() {
+    static bool initialized = false;
+    if (!initialized && timeClient.getEpochTime() > 1577836800) {  // After 2020-01-01
+        ntp_sync_complete = true;
+        last_hourly_quote_hour = timeClient.getHours();  // Prevent immediate quote
+        initialized = true;
+    }
+}
+
 // === MAIN SCHEDULER LOOP ===
 void scheduler_loop() {
+    scheduler_initNtpTracking();
     applyBrightnessWindowsIfNeeded();
 
     static bool quoteWasActive = false;

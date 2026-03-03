@@ -15,6 +15,7 @@
 
 static const uint8_t kLampDefaultBrightness = 64;
 static const uint8_t kLampStartupBrightnessCap = 96;
+static const bool kShowIpOnStaConnect = true;
 
 static bool parseHexColorString(const String& color, CRGB& outColor) {
     const char* raw = color.c_str();
@@ -52,6 +53,17 @@ static bool canApplyBaseDisplayModeChange() {
 static void applyStoredDisplaySettings(Preferences& preferences) {
     int savedBrightness = preferences.getString("animBrightness", "200").toInt();
     savedBrightness = constrain(savedBrightness, 1, 255);
+    int savedAnimSpeed = (int)preferences.getUChar("animSpeed", 4);
+    savedAnimSpeed = constrain(savedAnimSpeed, 1, 10);
+    animation_speed = (uint8_t)savedAnimSpeed;
+    // Also restore message_speed
+    int savedMsgSpeed = (int)preferences.getUChar("msgSpeed", 2);
+    savedMsgSpeed = constrain(savedMsgSpeed, 1, 10);
+    message_speed = (uint8_t)savedMsgSpeed;
+    
+    // Restore logs enabled state
+    bool logsEnabled = preferences.getUChar("logsEnabled", 1) == 1;
+    app_logger_set_enabled(logsEnabled);
     String savedColor = preferences.getString("animColor", "#FF0000");
     int lampBrightness = preferences.getString("lampBrightness", String((int)kLampDefaultBrightness)).toInt();
     lampBrightness = constrain(lampBrightness, 1, 255);
@@ -111,8 +123,9 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
         message_color = parsedLampColor;
     }
 
-    Serial.printf("[WiFi] Startup apply: brightness=%d color=%s lampBrightness=%d lampColor=%s interval=%ds fx=%d%d%d%d%d%d%d%d%d%d%d%d%d lamp=%d neg=%d quotes=%d\n",
+    Serial.printf("[WiFi] Startup apply: brightness=%d speed=%d color=%s lampBrightness=%d lampColor=%s interval=%ds fx=%d%d%d%d%d%d%d%d%d%d%d%d%d lamp=%d neg=%d quotes=%d\n",
         savedBrightness,
+        savedAnimSpeed,
         savedColor.c_str(),
         lampBrightness,
         lampColor.c_str(),
@@ -489,6 +502,10 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <form id='anim-form' onsubmit='return false'>
 <label>Jasność: <span id='bv'>200</span></label>
 <input type='range' name='animBrightness' id='ab' min='1' max='255' value='200' oninput='u();saveAnimationVisuals()'>
+<label>Prędkość animacji: <span id='asv'>4</span></label>
+<input type='range' name='animSpeed' id='as' min='1' max='10' value='4' oninput='u();saveAnimationVisuals()'>
+<label>Prędkość wiadomości: <span id='msv'>2</span></label>
+<input type='range' name='msgSpeed' id='ms' min='1' max='10' value='2' oninput='u();saveAnimationVisuals()'>
 <label>Czas między animacjami: <span id='afreqv'>10 s</span></label>
 <input type='range' name='clockAnimInterval' id='afreq' min='10' max='3600' value='10' oninput='u();saveAnimationInterval()'>
 <label><input type='checkbox' name='fxMove' id='fxMove' checked style='width:auto' onchange='saveAnimationSelection()'> Ruch cyfr</label>
@@ -1072,6 +1089,8 @@ tzSelect.value=tzValue;
 function loadAnimationsConfig(){
 fetch('/api/animations-config').then(r=>r.json()).then(cfg=>{
 document.getElementById('ab').value=cfg.animBrightness||200;
+document.getElementById('as').value=cfg.animSpeed||4;
+document.getElementById('ms').value=cfg.msgSpeed||2;
 document.getElementById('ac').value=cfg.animColor||'#FF0000';
 document.getElementById('afreq').value=cfg.clockAnimInterval||10;
 document.getElementById('fxMove').checked=(cfg.fxMove!==false);
@@ -1136,6 +1155,10 @@ showToast('❌ '+(d.error||'Błąd MQTT'),false);
 function u(){
 const b=document.getElementById('ab').value;
 document.getElementById('bv').textContent=b;
+const s=document.getElementById('as').value;
+document.getElementById('asv').textContent=s;
+const ms=document.getElementById('ms').value;
+document.getElementById('msv').textContent=ms;
 const f=parseInt(document.getElementById('afreq').value||'10',10);
 const hrs=Math.floor(f/3600);
 const mins=Math.floor((f%3600)/60);
@@ -1174,6 +1197,8 @@ saveLampConfig();
 function saveAnimations(){
 const fd=new FormData();
 fd.append('animBrightness',document.getElementById('ab').value||'200');
+fd.append('animSpeed',document.getElementById('as').value||'4');
+fd.append('msgSpeed',document.getElementById('ms').value||'2');
 fd.append('animColor',document.getElementById('ac').value||'#FF0000');
 postJsonForm('/save-animations',fd)
 .then(d=>{if(d.success)console.log('✓ '+(d.message||'Jasność zapisana'));else alert('❌ '+(d.message||'Błąd!'))}).catch(e=>console.log('Error:',e));
@@ -1441,14 +1466,17 @@ void WifiManager::loop() {
         }
 
         // Show IP only once after boot (never again until restart)
-        if (!ipShownEver &&
+        if (kShowIpOnStaConnect && !ipShownEver &&
             staConnectedSinceMs != 0 &&
             (nowMs - staConnectedSinceMs) >= 1200U) {
         String ipMsg = "IP: " + WiFi.localIP().toString();
         strlcpy(message_text, ipMsg.c_str(), sizeof(message_text));
         message_active = true;
         message_offset = LED_WIDTH;
-        message_speed = 1;
+        // Use saved message_speed from Preferences, default to 2 if not set
+        message_speed = preferences.getUChar("msgSpeed", 2);
+        if (message_speed < 1) message_speed = 1;
+        if (message_speed > 10) message_speed = 10;
         uint16_t textPixels = (uint16_t)strlen(message_text) * 6U;
         uint16_t scrollPixels = (uint16_t)LED_WIDTH + textPixels + 1U;
         uint16_t perPixelMs = (message_speed > 0) ? (uint16_t)(30U / message_speed) : 30U;
@@ -1582,6 +1610,7 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/api/mqtt-config", authWrap(&WifiManager::handleApiMqttConfig));
     server->on("/api/lamp-config", authWrap(&WifiManager::handleApiLampConfig));
     server->on("/api/logs", authWrap(&WifiManager::handleApiLogs));
+    server->on("/save-logs-config", HTTP_POST, authWrap(&WifiManager::handleSaveLogsConfig));
     server->on("/api/ping", [this]() {
         if (!ensureAuthenticated()) return;
         server->send(200, "text/plain", "pong");
@@ -1936,6 +1965,8 @@ void WifiManager::handleApiQuotes() {
 
 void WifiManager::handleApiAnimationsConfig() {
     String animBrightness = preferences.getString("animBrightness", "200");
+    uint8_t animSpeed = (uint8_t)constrain((int)preferences.getUChar("animSpeed", 4), 1, 10);
+    uint8_t msgSpeed = (uint8_t)constrain((int)preferences.getUChar("msgSpeed", 2), 1, 10);
     String animColor = preferences.getString("animColor", "#FF0000");
     uint16_t clockAnimInterval = loadStoredClockAnimIntervalSeconds(preferences);
     bool fxMove = preferences.getUChar("fxMove", 1) == 1;
@@ -1955,6 +1986,8 @@ void WifiManager::handleApiAnimationsConfig() {
     bool fxQuotes = preferences.getUChar("quotes_enabled", 1) == 1;
     String json = "{";
     json += "\"animBrightness\":" + animBrightness + ",";
+    json += "\"animSpeed\":" + String(animSpeed) + ",";
+    json += "\"msgSpeed\":" + String(msgSpeed) + ",";
     json += "\"animColor\":\"" + animColor + "\",";
     json += "\"clockAnimInterval\":" + String(clockAnimInterval) + ",";
     json += "\"fxMove\":" + String(fxMove ? "true" : "false") + ",";
@@ -2424,6 +2457,8 @@ void WifiManager::handleSaveAnimations() {
     };
 
     bool hasBrightnessArg = server->hasArg("animBrightness");
+    bool hasAnimSpeedArg = server->hasArg("animSpeed") || server->hasArg("animation_speed");
+    bool hasMsgSpeedArg = server->hasArg("msgSpeed");
     bool hasColorArg = server->hasArg("animColor");
     bool hasAnyAnimToggleArg =
         server->hasArg("fxMove") ||
@@ -2446,6 +2481,12 @@ void WifiManager::handleSaveAnimations() {
     int brightness = hasBrightnessArg
         ? constrain(server->arg("animBrightness").toInt(), 1, 255)
         : constrain(preferences.getString("animBrightness", "200").toInt(), 1, 255);
+    int animSpeed = hasAnimSpeedArg
+        ? constrain((server->hasArg("animSpeed") ? server->arg("animSpeed").toInt() : server->arg("animation_speed").toInt()), 1, 10)
+        : constrain((int)preferences.getUChar("animSpeed", 4), 1, 10);
+    int msgSpeed = hasMsgSpeedArg
+        ? constrain(server->arg("msgSpeed").toInt(), 1, 10)
+        : constrain((int)preferences.getUChar("msgSpeed", 2), 1, 10);
     int clockAnimInterval = server->hasArg("clockAnimInterval")
         ? constrain(server->arg("clockAnimInterval").toInt(), 10, 3600)
         : (int)loadStoredClockAnimIntervalSeconds(preferences);
@@ -2469,6 +2510,12 @@ void WifiManager::handleSaveAnimations() {
 
     if (hasBrightnessArg) {
         preferences.putString("animBrightness", String(brightness).c_str());
+    }
+    if (hasAnimSpeedArg) {
+        preferences.putUChar("animSpeed", (uint8_t)animSpeed);
+    }
+    if (hasMsgSpeedArg) {
+        preferences.putUChar("msgSpeed", (uint8_t)msgSpeed);
     }
     if (hasColorArg) {
         preferences.putString("animColor", animColor.c_str());
@@ -2497,6 +2544,8 @@ void WifiManager::handleSaveAnimations() {
     if (hasBrightnessArg && !lampEnabled) {
         display_setBrightness((uint8_t)brightness);
     }
+    animation_speed = (uint8_t)animSpeed;
+    message_speed = (uint8_t)msgSpeed;
     display_setFunClockIntervalSeconds((uint16_t)clockAnimInterval);
     display_setFunClockEffectsEnabled(fxMove, fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, fxSplitHalves, fxTetris, fxPileup, displayNegative);
     display_setNegative(false);
@@ -2521,8 +2570,9 @@ void WifiManager::handleSaveAnimations() {
         modeApplied = true;
     }
 
-    Serial.printf("[WiFi] Brightness applied: %d, Color: %s, ClockAnimInterval: %ds, fx=%d%d%d%d%d%d%d%d%d%d%d%d%d, lamp=%d, neg=%d, quotes=%d\n",
+    Serial.printf("[WiFi] Brightness applied: %d, Speed: %d, Color: %s, ClockAnimInterval: %ds, fx=%d%d%d%d%d%d%d%d%d%d%d%d%d, lamp=%d, neg=%d, quotes=%d\n",
         brightness,
+        animSpeed,
         animColor.c_str(),
         clockAnimInterval,
         fxMove ? 1 : 0,

@@ -1,6 +1,7 @@
 #include "effects.h"
 #include "display.h"
 #include "quotes.h"
+#include "app_logger.h"
 
 struct Firework {
     int16_t x, y;
@@ -66,23 +67,36 @@ void effects_firework() {
 static uint32_t lastScroll = 0;
 static int16_t scrollOffset = LED_WIDTH;
 static char currentQuote[128] = "";
+static uint32_t quoteStartMs = 0;
+static uint32_t quoteFrameCount = 0;
 
 bool effects_quotes(const char* text) {
     if (text && text[0] != '\0' && strcmp(currentQuote, text) != 0) {
         strlcpy(currentQuote, text, sizeof(currentQuote));
         scrollOffset = LED_WIDTH;
+        quoteStartMs = millis();
+        quoteFrameCount = 0;
+        app_logf("[QUOTE] START: %s (len=%u) animSpeed=%u", text, (unsigned)strlen(text), animation_speed);
     }
     if (currentQuote[0] == '\0') {
         return true;
     }
-    if (millis() - lastScroll > 30) {
+    uint8_t speed = animation_speed;
+    if (speed < 1) speed = 1;
+    uint16_t scrollStepMs = (uint16_t)(30U / speed);
+    if (scrollStepMs < 6U) scrollStepMs = 6U;
+    if (millis() - lastScroll > scrollStepMs) {
         scrollOffset--;
         lastScroll = millis();
+        quoteFrameCount++;
     }
     display_clear();
     display_drawText(currentQuote, scrollOffset, quote_color);
     display_show();
     if (scrollOffset < -((int)strlen(currentQuote) * 6)) {
+        uint32_t totalMs = millis() - quoteStartMs;
+        uint32_t fps = (quoteFrameCount * 1000) / (totalMs > 0 ? totalMs : 1);
+        app_logf("[QUOTE] DONE: frames=%lu ms=%lu fps=%lu", quoteFrameCount, totalMs, fps);
         scrollOffset = LED_WIDTH;
         return true;
     }

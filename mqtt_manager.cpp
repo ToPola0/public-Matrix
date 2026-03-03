@@ -1254,7 +1254,13 @@ void mqtt_manager_tryDisplayHaEntity() {
         strlcpy(message_text, text.c_str(), sizeof(message_text));
         message_active = true;
         message_offset = LED_WIDTH;
-        message_speed = 1;
+        // Use saved message_speed from Preferences, default to 2 if not set
+        Preferences tempPrefs;
+        tempPrefs.begin("wifi", true);
+        message_speed = tempPrefs.getUChar("msgSpeed", 2);
+        tempPrefs.end();
+        if (message_speed < 1) message_speed = 1;
+        if (message_speed > 10) message_speed = 10;
         message_color = CRGB::Cyan;
         message_start_time = now;
         message_time_left = (uint32_t)item.durationSec * 1000U;
@@ -1299,7 +1305,13 @@ bool mqtt_manager_triggerHaEntityDisplay(const String& entityName) {
         strlcpy(message_text, text.c_str(), sizeof(message_text));
         message_active = true;
         message_offset = LED_WIDTH;
-        message_speed = 1;
+        // Use saved message_speed from Preferences, default to 2 if not set
+        Preferences tempPrefs;
+        tempPrefs.begin("wifi", true);
+        message_speed = tempPrefs.getUChar("msgSpeed", 2);
+        tempPrefs.end();
+        if (message_speed < 1) message_speed = 1;
+        if (message_speed > 10) message_speed = 10;
         message_color = CRGB::Cyan;
         message_start_time = now;
         message_time_left = (uint32_t)item.durationSec * 1000U;

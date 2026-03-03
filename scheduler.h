@@ -12,6 +12,7 @@ extern uint8_t current_animation_index;          // obecna animacja w rotacji (0
 extern char current_scheduled_message[128];      // tekst aktualnej zaplanowanej wiadomości
 
 extern unsigned long last_scheduler_minute_check; // ostatnia minuta (do sprawdzania godzinowych zdarzeń)
+extern bool ntp_sync_complete;                  // NTP synchronization complete, safe to use time
 
 // New: zmienne dla zaplanowanych animacji i cytatów
 extern uint8_t scheduled_animation_type;         // typ animacji do wygranego zdarzenia
@@ -22,6 +23,7 @@ extern bool scheduled_quote_active;              // czy zaplanowany cytat powini
 void scheduler_init();
 void scheduler_loop();  // Wywoływane z main display loop
 void scheduler_snoozeQuotes(uint32_t durationMs);
+void scheduler_initNtpTracking();  // Initialize NTP sync tracking for quote timing
 
 // Helper functions
 bool shouldRotateAnimation();

@@ -45,6 +45,7 @@ hr { border: 0; border-top: 1px solid #444; margin: 24px 0; }
     <div class="tab" onclick="showTab('schedule')">Harmonogram</div>
     <div class="tab" onclick="showTab('quotes')">Cytaty</div>
     <div class="tab" onclick="showTab('ota')">OTA</div>
+    <div class="tab" onclick="showTab('diagnostyka')">Diagnostyka</div>
     <div class="tab" onclick="showTab('import')">Import/Eksport</div>
 </div>
 <div id="status" class="tab-content active">
@@ -236,6 +237,19 @@ hr { border: 0; border-top: 1px solid #444; margin: 24px 0; }
         <input type="file" name="firmware">
         <button type="submit">Wyślij</button>
     </form>
+</div>
+<div id="diagnostyka" class="tab-content">
+    <h2>Diagnostyka Systemu</h2>
+    <label>
+        <input type="checkbox" class="checkbox" id="logsEnabled" onchange="saveLogsConfig()"> 
+        Włącz rejestrowanie logów
+    </label>
+    <div style="margin-top: 15px; display: flex; gap: 10px;">
+        <button type="button" style="flex:1;" onclick="loadLogs()">🔄 Odśwież logi</button>
+        <button type="button" style="flex:1; background:#388e3c;" onclick="downloadLogs()">📥 Pobierz logi</button>
+        <button type="button" style="flex:1; background:#d32f2f;" onclick="clearLogsBuffer()">🗑️ Wyczyść</button>
+    </div>
+    <div id="logsList" style="margin-top: 15px; background: #222; padding: 10px; border-radius: 4px; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 11px; color: #0f0; white-space: pre-wrap; word-wrap: break-word;"></div>
 </div>
 <div id="import" class="tab-content">
     <h2>Import/Eksport konfiguracji</h2>
@@ -552,6 +566,73 @@ loadScheduledMessages();
 loadRandomQuotesSchedule();
 loadTimezone();
 fetchStatus();
+
+// === Logs functions ===
+let lastLogSeq = 0;
+async function loadLogs() {
+    try {
+        const resp = await fetch(`/api/logs?since=${lastLogSeq}&limit=100`);
+        if (!resp.ok) { console.error('Logs API error'); return; }
+        const data = await resp.json();
+        if (!data.success) return;
+        
+        const logsDiv = document.getElementById('logsList');
+        if (!data.logs || data.logs.length === 0) {
+            logsDiv.textContent = '[Brak nowych logów]';
+            return;
+        }
+        
+        let text = '';
+        for (const log of data.logs) {
+            text += `${new Date(log.ms).toLocaleTimeString()} ${log.msg}\n`;
+            lastLogSeq = Math.max(lastLogSeq, log.seq);
+        }
+        logsDiv.textContent = text;
+        logsDiv.scrollTop = logsDiv.scrollHeight;
+    } catch(e) {
+        console.error('Load logs error:', e);
+    }
+}
+
+async function saveLogsConfig() {
+    const enabled = document.getElementById('logsEnabled').checked;
+    try {
+        const resp = await fetch('/save-logs-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `logsEnabled=${enabled ? 'true' : 'false'}`
+        });
+        if (resp.ok) console.log('Logs config saved');
+    } catch(e) {
+        console.error('Save logs config error:', e);
+    }
+}
+
+function downloadLogs() {
+    const logsDiv = document.getElementById('logsList');
+    const text = logsDiv.textContent;
+    const blob = new Blob([text], {type: 'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `logs_${new Date().toISOString().slice(0,19)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function clearLogsBuffer() {
+    if (!confirm('Wyczyścić bufor logów?')) return;
+    document.getElementById('logsList').textContent = '';
+    lastLogSeq = 0;
+}
+
+// Load logs config on startup
+fetch('/api/logs?since=0&limit=5').then(r=>r.json()).then(d=>{
+    document.getElementById('logsEnabled').checked = d.enabled || false;
+    if(d.latestSeq) lastLogSeq = d.latestSeq;
+});
+setInterval(loadLogs, 2000);
+
 </script>
 </body>
 </html>
@@ -977,6 +1058,11 @@ void webPanel_setup() {
             }
             if (doc.containsKey("animation_speed")) {
                 animation_speed = constrain(doc["animation_speed"], 1, 10);
+                Preferences prefs;
+                if (prefs.begin("wifi", false)) {
+                    prefs.putUChar("animSpeed", animation_speed);
+                    prefs.end();
+                }
             }
             if (doc.containsKey("brightness") && !doc["brightness"].isNull()) {
                 int requestedBrightness = (int)doc["brightness"];
@@ -1028,6 +1114,11 @@ void webPanel_setup() {
         }
         if (webServer.hasArg("animation_speed")) {
             animation_speed = constrain(webServer.arg("animation_speed").toInt(), 1, 10);
+            Preferences prefs;
+            if (prefs.begin("wifi", false)) {
+                prefs.putUChar("animSpeed", animation_speed);
+                prefs.end();
+            }
             if (display_mode == DISPLAY_MODE_CLOCK) {
                 display_mode = DISPLAY_MODE_ANIMATION;
             }

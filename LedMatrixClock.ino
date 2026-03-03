@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
+#include <Preferences.h>
+#include <LittleFS.h>
 #include "config.h"
 #include "display.h"
 #include "effects.h"
@@ -10,6 +12,12 @@
 #include "quotes.h"
 #include "scheduler.h"
 #include "mqtt_manager.h"
+#include "app_logger.h"
+
+// === FACTORY RESET FLAG ===
+// Set to true to perform factory reset on next boot (clears all Preferences and LittleFS)
+// IMPORTANT: Flash this code with flag=true, wait for boot complete, then change to false and re-flash
+#define FACTORY_RESET_ON_BOOT false
 
 unsigned long lastStatus = 0;
 unsigned long lastBuzzer = 0;
@@ -18,7 +26,6 @@ unsigned long bootMillis = 0;
 
 // === Buzzer & Quote safety ===
 uint8_t last_buzzer_second = 255;
-uint8_t last_quote_hour = 255;
 bool buzzer_active = false;
 uint32_t buzzer_start_time = 0;
 uint32_t buzzer_duration = 0;
@@ -181,6 +188,42 @@ static void run_led_tester() {
 
 void setup() {
     Serial.begin(115200);
+    
+    // === FACTORY RESET PROCEDURE ===
+    #if FACTORY_RESET_ON_BOOT
+    {
+        delay(2000);  // Give Serial time to initialize
+        Serial.println("\n\n=== FACTORY RESET IN PROGRESS ===");
+        Serial.println("[FACTORY] Clearing all Preferences namespaces...");
+        
+        // Clear all Preferences namespaces
+        Preferences prefs;
+        const char* namespaces[] = {"wifi", "schedule", "mqtt", "ha-entities"};
+        for (size_t i = 0; i < sizeof(namespaces)/sizeof(namespaces[0]); i++) {
+            prefs.begin(namespaces[i], false);
+            Serial.printf("[FACTORY] Clearing namespace: %s\n", namespaces[i]);
+            prefs.clear();
+            prefs.end();
+        }
+        
+        // Format LittleFS
+        Serial.println("[FACTORY] Formatting LittleFS...");
+        LittleFS.format();
+        
+        Serial.println("=== FACTORY RESET COMPLETE ===");
+        Serial.println("[FACTORY] ALL data erased. Please change FACTORY_RESET_ON_BOOT to false");
+        Serial.println("[FACTORY] and re-compile/re-flash.\n\n");
+        
+        // Endless loop - user must change flag and re-flash
+        while (true) {
+            digitalWrite(BUILTIN_LED, HIGH);
+            delay(500);
+            digitalWrite(BUILTIN_LED, LOW);
+            delay(500);
+        }
+    }
+    #endif
+    
     display_init();
     display_enabled = true;
     display_mode = DISPLAY_MODE_CLOCK;
@@ -205,7 +248,14 @@ void setup() {
     mqtt_manager_begin();
 }
 
+static uint32_t loopStartMs = 0;
+static uint32_t lastDiagnosticMs = 0;
+static uint32_t loopCount = 0;
+
 void loop() {
+    loopStartMs = millis();
+    loopCount++;
+    
 #if LED_TESTER_MODE
     run_led_tester();
     delay(1);
@@ -276,13 +326,6 @@ void loop() {
             }
         }
         
-        // === QUOTE LOGIC (wyłączone jeśli scheduler ma losowe cytaty) ===
-        if (!mainConfig.schedule.random_quotes_enabled && currentSecond == 2 && currentHour != last_quote_hour) {
-            last_quote_hour = currentHour;
-            display_mode = DISPLAY_MODE_QUOTE;
-            effects_quotes(quotes_getRandom());
-        }
-        
         // === MESSAGE TIMEOUT ===
         if (message_active && message_time_left > 0) {
             if ((millis() - message_start_time) > message_time_left) {
@@ -297,7 +340,9 @@ void loop() {
         } else if (message_active && message_time_left > 0) {
             // Priority 2: Manual message (highest after OFF)
             uint32_t now = millis();
-            if (now - last_message_update > 30 / message_speed) {
+            uint16_t messageIntervalMs = (uint16_t)(30.0 / message_speed);
+            if (messageIntervalMs < 1) messageIntervalMs = 1;
+            if (now - last_message_update > messageIntervalMs) {
                 message_offset--;
                 if (message_offset < -((int)strlen(message_text) * 6)) {
                     message_active = false;
@@ -352,5 +397,16 @@ void loop() {
         display_clear();
         display_drawMessage(apText, apTextOffset, CRGB::Cyan);
         display_show();
+    }
+    
+    // === DIAGNOSTICS (every 5s) ===
+    uint32_t nowMs = millis();
+    if (nowMs - lastDiagnosticMs > 5000) {
+        lastDiagnosticMs = nowMs;
+        uint32_t loopDtime = nowMs - loopStartMs;
+        uint32_t fps = (loopCount * 1000) / ((nowMs > loopStartMs) ? (nowMs - loopStartMs + 1) : 1);
+        app_logf("[DIAG] FPS=%lu animSpeed=%u msgSpeed=%u loopMs=%lu mode=%u msg=%u",
+            fps, animation_speed, message_speed, loopDtime, display_mode, message_active);
+        loopCount = 0;
     }
 }

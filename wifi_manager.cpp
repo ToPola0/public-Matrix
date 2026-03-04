@@ -16,6 +16,37 @@
 static const uint8_t kLampDefaultBrightness = 64;
 static const uint8_t kLampStartupBrightnessCap = 96;
 static const bool kShowIpOnStaConnect = true;
+static const char* kBirthdaysPrefKey = "birthdays";
+
+static bool isLeapYearValue(int year) {
+    return ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0));
+}
+
+static bool isValidIsoDateYYYYMMDD(const String& date) {
+    if (date.length() != 10) return false;
+    for (uint8_t i = 0; i < 10; i++) {
+        char c = date.charAt(i);
+        if (i == 4 || i == 7) {
+            if (c != '-') return false;
+        } else {
+            if (c < '0' || c > '9') return false;
+        }
+    }
+
+    int year = date.substring(0, 4).toInt();
+    int month = date.substring(5, 7).toInt();
+    int day = date.substring(8, 10).toInt();
+
+    if (year < 1900 || year > 2200) return false;
+    if (month < 1 || month > 12) return false;
+
+    static const uint8_t daysInMonth[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    uint8_t maxDay = daysInMonth[month - 1];
+    if (month == 2 && isLeapYearValue(year)) {
+        maxDay = 29;
+    }
+    return day >= 1 && day <= maxDay;
+}
 
 static bool parseHexColorString(const String& color, CRGB& outColor) {
     const char* raw = color.c_str();
@@ -444,10 +475,11 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button class='tb' onclick='showTab(2)'>Anim</button>
 <button class='tb' onclick='showTab(3)'>Lampa</button>
 <button class='tb' onclick='showTab(4)'>Cytaty</button>
-<button class='tb' onclick='showTab(5)'>Plan</button>
-<button class='tb' onclick='showTab(6)'>MQTT</button>
-<button class='tb' onclick='showTab(7)'>WiFi</button>
-<button class='tb' onclick='showTab(8)' style='display:none'>Logi</button>
+<button class='tb' onclick='showTab(5)'>Urodziny</button>
+<button class='tb' onclick='showTab(6)'>Plan</button>
+<button class='tb' onclick='showTab(7)'>MQTT</button>
+<button class='tb' onclick='showTab(8)'>WiFi</button>
+<button class='tb' onclick='showTab(9)' style='display:none'>Logi</button>
 </div>
 
 <!-- TAB 0: INFO -->
@@ -465,7 +497,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <div class='i'><strong>OTA:</strong> <span id='sys-ota' class='pill'>--</span></div>
 <div class='i'><strong>RAM:</strong> <span id='sys-ram' class='pill'>--</span></div>
 </div>
-<button type='button' onclick='showTab(8)'>Logi</button>
+<button type='button' onclick='showTab(9)'>Logi</button>
 <button onclick='location.reload()'>Refresh</button>
 <button class='d' onclick='restartDevice()'>Restart urządzenia</button>
 <button onclick='logoutPanel()'>Wyloguj</button>
@@ -579,13 +611,27 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 
 <!-- TAB 5: HARMONOGRAM -->
 <div class='tc'>
+<h2>Urodziny</h2>
+<form id='birthday-form' onsubmit='return false'>
+<label>Imię</label>
+<input type='text' id='bd-name' maxlength='40' placeholder='Np. Anna'>
+<label>Data wyświetlania</label>
+<input type='date' id='bd-date'>
+<button type='button' onclick='addBirthday()'>Dodaj urodziny</button>
+<button type='button' onclick='triggerBirthdayTest()' style='background:#1976d2;'>Test życzeń</button>
+</form>
+<div id='birthdays-list' style='margin-top:8px'></div>
+</div>
+
+<!-- TAB 6: HARMONOGRAM -->
+<div class='tc'>
 <h2>Harmonogram jasności</h2>
 <div id='schedule-list' style='margin-bottom:4px'></div>
 <button type='button' onclick='addScheduleItem()' style='background:#555;margin-bottom:4px'>Dodaj okno</button>
 <button type='button' onclick='saveSchedule()'>Zapisz</button>
 </div>
 
-<!-- TAB 6: MQTT -->
+<!-- TAB 7: MQTT -->
 <div class='tc'>
 <h2>MQTT (Home Assistant)</h2>
 <form id='mqtt-form' onsubmit='return false'>
@@ -605,7 +651,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 </form>
 </div>
 
-<!-- TAB 7: WiFi -->
+<!-- TAB 8: WiFi -->
 <div class='tc'>
 <h2>WiFi</h2>
 <form method='POST' action='/save'>
@@ -630,7 +676,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button class='d' onclick='if(confirm("Wykonać pełny reset ustawień WiFi?"))location.href="/resetwifi"'>Reset WiFi (całość)</button>
 </div>
 
-<!-- TAB 8: LOGI -->
+<!-- TAB 9: LOGI -->
 <div class='tc'>
 <h2>Logi</h2>
 <div class='logs-controls'>
@@ -663,11 +709,12 @@ document.querySelectorAll('.tc')[i].classList.add('a');
 document.querySelectorAll('.tb')[i].classList.add('a');
 if(i===3)loadLampConfig();
 if(i===4)loadQuotes();
-if(i===5)loadSchedule();
+if(i===5)loadBirthdays();
+if(i===6)loadSchedule();
 if(i===2)loadAnimationsConfig();
-if(i===6)loadMqttConfig();
-if(i===7)loadWifiConfig();
-if(i===8){loadLogsNow(true);startLogsPolling();}else{stopLogsPolling();}
+if(i===7)loadMqttConfig();
+if(i===8)loadWifiConfig();
+if(i===9){loadLogsNow(true);startLogsPolling();}else{stopLogsPolling();}
 }
 
 function logsAppend(items,replaceAll=false){
@@ -714,7 +761,7 @@ logsPollTimer=setInterval(()=>{
 const autoEl=document.getElementById('logsAuto');
 if(autoEl && autoEl.checked===false)return;
 const tabIndex=[...document.querySelectorAll('.tc')].findIndex(e=>e.classList.contains('a'));
-if(tabIndex!==8)return;
+if(tabIndex!==9)return;
 loadLogsNow(false);
 },1000);
 }
@@ -991,6 +1038,73 @@ document.getElementById('importFile').value='';
 reader.readAsText(file);
 }
 document.getElementById('importFile')?.addEventListener('change',handleFileImport);
+function escapeHtml(text){
+return String(text)
+.replace(/&/g,'&amp;')
+.replace(/</g,'&lt;')
+.replace(/>/g,'&gt;')
+.replace(/\"/g,'&quot;')
+.replace(/'/g,'&#39;');
+}
+function loadBirthdays(){
+fetch('/api/birthdays').then(r=>r.json()).then(d=>{
+const list=document.getElementById('birthdays-list');
+if(!list)return;
+const items=Array.isArray(d.birthdays)?d.birthdays:[];
+if(items.length===0){
+list.innerHTML="<div class='i'>Brak zapisanych urodzin</div>";
+return;
+}
+list.innerHTML='';
+items.forEach((it,idx)=>{
+const name=escapeHtml(it.name||'');
+const date=escapeHtml(it.date||'');
+list.insertAdjacentHTML('beforeend',`<div class='i'><strong>${name}</strong><br><span>${date}</span><br><button type='button' onclick='deleteBirthday(${idx})' style='width:auto;padding:2px 8px;background:#600;margin-top:4px'>Usuń</button></div>`);
+});
+}).catch(e=>console.log('Error:',e));
+}
+function addBirthday(){
+const nameEl=document.getElementById('bd-name');
+const dateEl=document.getElementById('bd-date');
+if(!nameEl||!dateEl)return;
+const name=nameEl.value.trim();
+const date=dateEl.value;
+if(name.length===0){showToast('❌ Wpisz imię',false);return;}
+if(!date){showToast('❌ Wybierz datę',false);return;}
+const fd=new FormData();
+fd.append('name',name);
+fd.append('date',date);
+fetch('/save-birthday',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+if(d.success){
+nameEl.value='';
+dateEl.value='';
+loadBirthdays();
+showToast('✓ Urodziny zapisane',true);
+}else{
+showToast('❌ '+(d.error||'Błąd zapisu'),false);
+}
+}).catch(e=>{console.log('Error:',e);showToast('❌ Błąd połączenia',false)});
+}
+function deleteBirthday(index){
+if(!confirm('Usunąć urodziny?'))return;
+fetch('/delete-birthday?index='+index,{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+loadBirthdays();
+showToast('✓ Urodziny usunięte',true);
+}else{
+showToast('❌ '+(d.error||'Błąd usuwania'),false);
+}
+}).catch(e=>{console.log('Error:',e);showToast('❌ Błąd połączenia',false)});
+}
+function triggerBirthdayTest(){
+fetch('/trigger-birthday-test',{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+showToast('✓ Test życzeń uruchomiony',true);
+}else{
+showToast('❌ '+(d.error||'Błąd testu'),false);
+}
+}).catch(e=>{console.log('Error:',e);showToast('❌ Błąd połączenia',false)});
+}
 function loadSchedule(){
 fetch('/api/schedule').then(r=>r.json()).then(d=>{
 const l=document.getElementById('schedule-list');
@@ -1273,7 +1387,7 @@ window.location.href='/?login='+Date.now();
 });
 }
 document.addEventListener('DOMContentLoaded',()=>{
-loadWifiConfig();loadQuotes();loadSchedule();loadAnimationsConfig();loadLampConfig();loadMqttConfig();
+loadWifiConfig();loadQuotes();loadBirthdays();loadSchedule();loadAnimationsConfig();loadLampConfig();loadMqttConfig();
 const cp=document.getElementById('acp');
 const ac=document.getElementById('ac');
 if(cp&&ac){
@@ -1620,6 +1734,7 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/restart", authWrap(&WifiManager::handleRestart));
     server->on("/api/status", authWrap(&WifiManager::handleApiStatus));
     server->on("/api/quotes", authWrap(&WifiManager::handleApiQuotes));
+    server->on("/api/birthdays", authWrap(&WifiManager::handleApiBirthdays));
     server->on("/api/animations-config", authWrap(&WifiManager::handleApiAnimationsConfig));
     server->on("/api/schedule", authWrap(&WifiManager::handleApiSchedule));
     server->on("/api/quotes-list", authWrap(&WifiManager::handleApiQuotesList));
@@ -1635,6 +1750,7 @@ void WifiManager::setupWebServer(WebServer* webServer) {
         server->send(200, "text/plain", "pong");
     });
     server->on("/save-quote", HTTP_POST, authWrap(&WifiManager::handleSaveQuote));
+    server->on("/save-birthday", HTTP_POST, authWrap(&WifiManager::handleSaveBirthday));
     server->on("/save-mqtt", HTTP_POST, authWrap(&WifiManager::handleSaveMqtt));
     server->on("/save-logs", HTTP_POST, authWrap(&WifiManager::handleSaveLogsConfig));
     server->on("/save-lamp", HTTP_POST, authWrap(&WifiManager::handleSaveLampConfig));
@@ -1654,7 +1770,9 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/trigger-clock-pileup", HTTP_POST, authWrap(&WifiManager::handleTriggerClockPileup));
     server->on("/trigger-clock-negative", HTTP_POST, authWrap(&WifiManager::handleTriggerClockNegative));
     server->on("/trigger-rainbow-background", HTTP_POST, authWrap(&WifiManager::handleTriggerRainbowBackground));
+    server->on("/trigger-birthday-test", HTTP_POST, authWrap(&WifiManager::handleTriggerBirthdayTest));
     server->on("/delete-quote", HTTP_POST, authWrap(&WifiManager::handleDeleteQuote));
+    server->on("/delete-birthday", HTTP_POST, authWrap(&WifiManager::handleDeleteBirthday));
     server->on("/api/quotes-export", authWrap(&WifiManager::handleExportQuotes));
     server->on("/import-quotes", HTTP_POST, authWrap(&WifiManager::handleImportQuotes));
     server->on("/save-quotes-enabled", HTTP_POST, authWrap(&WifiManager::handleSaveQuotesEnabled));
@@ -2247,6 +2365,19 @@ void WifiManager::handleApiQuotesList() {
     server->send(200, "application/json; charset=utf-8", response);
 }
 
+void WifiManager::handleApiBirthdays() {
+    String birthdaysJson = preferences.getString(kBirthdaysPrefKey, "[]");
+
+    DynamicJsonDocument doc(4096);
+    DeserializationError err = deserializeJson(doc, birthdaysJson);
+    if (err || !doc.is<JsonArray>()) {
+        birthdaysJson = "[]";
+    }
+
+    String response = "{\"birthdays\":" + birthdaysJson + "}";
+    server->send(200, "application/json; charset=utf-8", response);
+}
+
 void WifiManager::handleSaveQuote() {
     if (server->hasArg("quote")) {
         String newQuote = server->arg("quote");
@@ -2263,6 +2394,46 @@ void WifiManager::handleSaveQuote() {
     } else {
         server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Missing quote text\"}");
     }
+}
+
+void WifiManager::handleSaveBirthday() {
+    if (!server->hasArg("name") || !server->hasArg("date")) {
+        server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Brak danych\"}");
+        return;
+    }
+
+    String name = server->arg("name");
+    String date = server->arg("date");
+    name.trim();
+    date.trim();
+
+    if (name.length() == 0 || name.length() > 40) {
+        server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Nieprawidłowe imię\"}");
+        return;
+    }
+    if (!isValidIsoDateYYYYMMDD(date)) {
+        server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Nieprawidłowa data\"}");
+        return;
+    }
+
+    String birthdaysJson = preferences.getString(kBirthdaysPrefKey, "[]");
+    DynamicJsonDocument doc(4096);
+    DeserializationError err = deserializeJson(doc, birthdaysJson);
+    if (err || !doc.is<JsonArray>()) {
+        doc.clear();
+        doc.to<JsonArray>();
+    }
+
+    JsonArray arr = doc.as<JsonArray>();
+    JsonObject entry = arr.createNestedObject();
+    entry["name"] = name;
+    entry["date"] = date;
+
+    String out;
+    serializeJson(arr, out);
+    preferences.putString(kBirthdaysPrefKey, out.c_str());
+
+    server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
 }
 
 void WifiManager::handleTriggerQuote() {
@@ -2289,7 +2460,10 @@ void WifiManager::handleTriggerQuote() {
 void WifiManager::handleTriggerClockAnimation() {
     display_mode = DISPLAY_MODE_CLOCK;
     scheduler_snoozeQuotes(45000U);
-    display_triggerFunClockMirror();  // Animation MOVE removed, using MIRROR instead
+    if (!display_triggerFunClockAnyEnabled()) {
+        server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Brak aktywnych efektów cyfr\"}");
+        return;
+    }
     Serial.println("[WiFi] Trigger clock animation test");
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
 }
@@ -2398,6 +2572,53 @@ void WifiManager::handleTriggerRainbowBackground() {
     server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
 }
 
+void WifiManager::handleTriggerBirthdayTest() {
+    String birthdaysJson = preferences.getString(kBirthdaysPrefKey, "[]");
+
+    DynamicJsonDocument doc(4096);
+    DeserializationError err = deserializeJson(doc, birthdaysJson);
+    if (err || !doc.is<JsonArray>()) {
+        server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Brak listy urodzin\"}");
+        return;
+    }
+
+    JsonArray arr = doc.as<JsonArray>();
+    if (arr.size() == 0) {
+        server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Dodaj najpierw urodziny\"}");
+        return;
+    }
+
+    JsonObject selected = arr[(size_t)random(0, (long)arr.size())];
+    const char* rawName = selected["name"] | "Solenizant";
+
+    static const char* templates[] = {
+        "Sto Lat %s!",
+        "Wszystkiego Najlepszego %s!",
+        "Szczęścia i Zdrowia %s!",
+        "Dużo Radości %s!",
+        "Spełnienia Marzeń %s!",
+        "Najlepsze Życzenia %s!"
+    };
+    uint8_t tplIdx = (uint8_t)random(0, (long)(sizeof(templates) / sizeof(templates[0])));
+
+    char greeting[sizeof(message_text)];
+    snprintf(greeting, sizeof(greeting), templates[tplIdx], rawName ? rawName : "Solenizant");
+    greeting[sizeof(greeting) - 1] = '\0';
+
+    strlcpy(message_text, greeting, sizeof(message_text));
+    message_active = true;
+    message_offset = LED_WIDTH;
+    message_time_left = (uint32_t)random(9000UL, 15001UL);
+    message_start_time = millis();
+    message_color = CHSV((uint8_t)random(0, 256), 230, 255);
+    display_mode = DISPLAY_MODE_MESSAGE;
+    display_enabled = true;
+    scheduler_snoozeQuotes(45000U);
+
+    Serial.printf("[WiFi] Trigger birthday test: %s\n", message_text);
+    server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
+}
+
 void WifiManager::handleDeleteQuote() {
     if (server->hasArg("index")) {
         int index = server->arg("index").toInt();
@@ -2414,6 +2635,36 @@ void WifiManager::handleDeleteQuote() {
     } else {
         server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Missing index\"}");
     }
+}
+
+void WifiManager::handleDeleteBirthday() {
+    if (!server->hasArg("index")) {
+        server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Brak indeksu\"}");
+        return;
+    }
+
+    int index = server->arg("index").toInt();
+    String birthdaysJson = preferences.getString(kBirthdaysPrefKey, "[]");
+
+    DynamicJsonDocument doc(4096);
+    DeserializationError err = deserializeJson(doc, birthdaysJson);
+    if (err || !doc.is<JsonArray>()) {
+        server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Brak listy urodzin\"}");
+        return;
+    }
+
+    JsonArray arr = doc.as<JsonArray>();
+    if (index < 0 || index >= (int)arr.size()) {
+        server->send(400, "application/json; charset=utf-8", "{\"success\":false,\"error\":\"Nieprawidłowy indeks\"}");
+        return;
+    }
+
+    arr.remove((size_t)index);
+    String out;
+    serializeJson(arr, out);
+    preferences.putString(kBirthdaysPrefKey, out.c_str());
+
+    server->send(200, "application/json; charset=utf-8", "{\"success\":true}");
 }
 
 void WifiManager::handleSaveTime() {

@@ -444,6 +444,11 @@ void display_triggerFunClockMirror() {
     funClockStartMirror(millis());
 }
 
+bool display_triggerFunClockAnyEnabled() {
+    funClockInitIfNeeded();
+    return funClockStartAnyEnabledEffect(millis());
+}
+
 void display_triggerFunClockRainbow() {
     funClockInitIfNeeded();
     funClockStartRainbow(millis());

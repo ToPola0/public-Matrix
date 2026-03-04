@@ -43,6 +43,7 @@ private:
     void handleRestart();
     void handleApiStatus();
     void handleApiQuotes();
+    void handleApiBirthdays();
     void handleApiSchedule();
     void handleApiNetworkInfo();
     void handleApiWifiScan();
@@ -53,6 +54,7 @@ private:
     void handleApiQuotesList();
     void handleApiNtpConfig();
     void handleSaveQuote();
+    void handleSaveBirthday();
     void handleSaveMqtt();
     void handleSaveLogsConfig();
     void handleSaveHaEntities();
@@ -72,8 +74,10 @@ private:
     void handleTriggerClockPileup();
     void handleTriggerClockNegative();
     void handleTriggerRainbowBackground();
+    void handleTriggerBirthdayTest();
     void handleTriggerHaEntity();
     void handleDeleteQuote();
+    void handleDeleteBirthday();
     void handleExportQuotes();
     void handleImportQuotes();
     void handleSaveQuotesEnabled();

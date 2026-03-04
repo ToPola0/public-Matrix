@@ -283,13 +283,17 @@ void loop() {
         delay(1);
         return;
     }
-    clock_update();
+    if (display_mode != DISPLAY_MODE_LAMP) {
+        clock_update();
+    }
     if (!wifiManager.isAPMode()) {
         webPanel_loop();
     }
     
     if (wifiManager.isConnected()) {
-        scheduler_loop();
+        if (display_mode != DISPLAY_MODE_LAMP) {
+            scheduler_loop();
+        }
         mqtt_manager_tryDisplayHaEntity();
         
         // === BUZZER LOGIC (non-blocking) ===

@@ -5,6 +5,7 @@
 #include "quotes.h"
 #include <Preferences.h>
 #include <ArduinoJson.h>
+#include <time.h>
 
 // Zmienne globalne
 unsigned long last_animation_change = 0;
@@ -28,10 +29,131 @@ bool scheduled_animation_active = false;     // Is a scheduled animation running
 bool scheduled_quote_active = false;         // Is a scheduled quote showing now
 static uint32_t quote_suppressed_until_ms = 0;
 static uint32_t last_quote_effect_count = 0;
+static uint32_t next_birthday_greeting_ms = 0;
 
 extern MainConfig mainConfig;
 extern NTPClient timeClient;
 extern CRGB leds[];
+
+static uint32_t randomBirthdayGreetingIntervalMs(bool hasBirthdayToday) {
+    if (hasBirthdayToday) {
+        return (uint32_t)random(240000UL, 840001UL); // 4-14 min
+    }
+    return (uint32_t)random(1800000UL, 5400001UL);   // 30-90 min
+}
+
+static bool parseIsoDateMonthDay(const String& isoDate, uint8_t& outMonth, uint8_t& outDay) {
+    if (isoDate.length() != 10) return false;
+    if (isoDate.charAt(4) != '-' || isoDate.charAt(7) != '-') return false;
+
+    int month = isoDate.substring(5, 7).toInt();
+    int day = isoDate.substring(8, 10).toInt();
+    if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+
+    outMonth = (uint8_t)month;
+    outDay = (uint8_t)day;
+    return true;
+}
+
+static bool getCurrentMonthDay(uint8_t& outMonth, uint8_t& outDay) {
+    if (!ntp_sync_complete) return false;
+
+    time_t localEpoch = (time_t)timeClient.getEpochTime();
+    struct tm timeInfo;
+    if (!gmtime_r(&localEpoch, &timeInfo)) return false;
+
+    outMonth = (uint8_t)(timeInfo.tm_mon + 1);
+    outDay = (uint8_t)timeInfo.tm_mday;
+    return true;
+}
+
+static uint8_t collectTodayBirthdayNames(char outNames[][41], uint8_t maxCount) {
+    if (maxCount == 0) return 0;
+
+    uint8_t month = 0;
+    uint8_t day = 0;
+    if (!getCurrentMonthDay(month, day)) return 0;
+
+    Preferences prefs;
+    prefs.begin("wifi", true);
+    String birthdaysJson = prefs.getString("birthdays", "[]");
+    prefs.end();
+
+    if (birthdaysJson.length() < 2) return 0;
+
+    DynamicJsonDocument doc(4096);
+    DeserializationError err = deserializeJson(doc, birthdaysJson);
+    if (err || !doc.is<JsonArray>()) return 0;
+
+    JsonArray arr = doc.as<JsonArray>();
+    uint8_t count = 0;
+    for (JsonVariant v : arr) {
+        if (!v.is<JsonObject>()) continue;
+        JsonObject obj = v.as<JsonObject>();
+        const char* rawName = obj["name"] | "";
+        const char* rawDate = obj["date"] | "";
+        if (!rawName || !rawDate || rawName[0] == '\0') continue;
+
+        String dateValue = String(rawDate);
+        uint8_t birthdayMonth = 0;
+        uint8_t birthdayDay = 0;
+        if (!parseIsoDateMonthDay(dateValue, birthdayMonth, birthdayDay)) continue;
+        if (birthdayMonth != month || birthdayDay != day) continue;
+
+        strlcpy(outNames[count], rawName, 41);
+        count++;
+        if (count >= maxCount) break;
+    }
+
+    return count;
+}
+
+static void buildBirthdayGreeting(const char* name, char* outText, size_t outSize) {
+    static const char* templates[] = {
+        "Sto Lat %s!",
+        "Wszystkiego Najlepszego %s!",
+        "Szczęścia i Zdrowia %s!",
+        "Dużo Radości %s!",
+        "Spełnienia Marzeń %s!",
+        "Najlepsze Życzenia %s!"
+    };
+
+    if (!outText || outSize == 0) return;
+    const size_t templateCount = sizeof(templates) / sizeof(templates[0]);
+    uint8_t idx = (uint8_t)random(0, (long)templateCount);
+    snprintf(outText, outSize, templates[idx], (name && name[0] != '\0') ? name : "Solenizant");
+    outText[outSize - 1] = '\0';
+}
+
+static bool tryTriggerRandomBirthdayGreeting() {
+    char names[24][41];
+    uint8_t count = collectTodayBirthdayNames(names, 24);
+    if (count == 0) return false;
+
+    if (message_active) return false;
+    if (display_mode == DISPLAY_MODE_QUOTE || display_mode == DISPLAY_MODE_LAMP) return false;
+
+    uint8_t selectedIndex = (uint8_t)random(0, (long)count);
+    char greeting[128];
+    buildBirthdayGreeting(names[selectedIndex], greeting, sizeof(greeting));
+
+    strncpy(message_text, greeting, sizeof(message_text) - 1);
+    message_text[sizeof(message_text) - 1] = '\0';
+
+    message_active = true;
+    message_offset = LED_WIDTH;
+    message_time_left = (uint32_t)random(9000UL, 15001UL);
+    message_start_time = millis();
+
+    uint8_t hue = (uint8_t)random(0, 256);
+    message_color = CHSV(hue, 230, 255);
+
+    display_mode = DISPLAY_MODE_MESSAGE;
+    scheduler_snoozeQuotes(45000U);
+
+    Serial.printf("[SCHEDULER] Birthday greeting: %s\n", message_text);
+    return true;
+}
 
 static bool parseTimeHHMM(const char* timeStr, uint16_t& outMinutes) {
     if (!timeStr) return false;
@@ -152,6 +274,7 @@ void scheduler_init() {
     // Initialize Preferences for schedule tracking
     schedulePreferences.begin("scheduleTracker", false);
     last_quote_effect_count = display_getFunClockCompletedEffectsCount();
+    next_birthday_greeting_ms = millis() + randomBirthdayGreetingIntervalMs(true);
     
     // Reset "once" message tracking dla nowego dnia
     last_checked_hour = 255;
@@ -396,6 +519,10 @@ void scheduler_initNtpTracking() {
 
 // === MAIN SCHEDULER LOOP ===
 void scheduler_loop() {
+    if (display_mode == DISPLAY_MODE_LAMP) {
+        return;
+    }
+
     scheduler_initNtpTracking();
     applyBrightnessWindowsIfNeeded();
 
@@ -503,6 +630,18 @@ void scheduler_loop() {
     }
     
     // 5. Cytat godzinowy o HH:00:03
+    unsigned long now = millis();
+    if (now >= next_birthday_greeting_ms) {
+        bool birthdayShown = tryTriggerRandomBirthdayGreeting();
+        char tmpNames[1][41];
+        bool hasBirthdayToday = (collectTodayBirthdayNames(tmpNames, 1) > 0);
+        next_birthday_greeting_ms = now + randomBirthdayGreetingIntervalMs(hasBirthdayToday);
+        if (birthdayShown) {
+            quoteTriggeredThisLoop = true;
+        }
+    }
+
+    // 6. Cytat godzinowy o HH:00:03
     if (!quoteTriggeredThisLoop && shouldDisplayHourlyQuote()) {
         const char* quote = quotes_getRandom();
         if (quote != NULL && strlen(quote) > 0) {
@@ -515,5 +654,5 @@ void scheduler_loop() {
         }
     }
     
-    // 6. Koniec pętli scheduler
+    // 7. Koniec pętli scheduler
 }

@@ -62,6 +62,7 @@ void display_drawText(const char* text, int16_t offset, CRGB color);
 void display_drawLamp();
 void display_drawMessage(const char* text, int16_t offset, CRGB color);
 void display_drawCornerCalibration();
+bool display_triggerFunClockAnyEnabled();
 void display_triggerFunClockMirror();
 void display_triggerFunClockRainbow();
 void display_triggerFunClockHoursSlide();

@@ -362,11 +362,13 @@ void loop() {
                 case ANIM_WAVE: anim_wave(); break;
                 case ANIM_PULSE: anim_pulse(); break;
                 case ANIM_NIGHT: anim_night(); break;
+                case ANIM_RAINBOW_BACKGROUND: anim_rainbow_background(); break;
                 default: anim_rainbow();
             }
             display_show();
         } else if (display_mode == DISPLAY_MODE_QUOTE) {
-            // Priority 4: Quote
+            // Priority 4: Quote - ale zawsze update animacje zegara w tle
+            display_drawClock(currentHour, currentMinute, currentSecond, colonState, false);
             if (effects_quotes(nullptr)) {
                 display_mode = DISPLAY_MODE_CLOCK;
                 display_resetFunClockNextEffectTimer();

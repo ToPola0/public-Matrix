@@ -10,6 +10,7 @@
 #include "clock.h"
 #include "display.h"
 #include "quotes.h"
+#include "app_logger.h"
 const char HTML_PAGE[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="pl">
@@ -145,6 +146,20 @@ hr { border: 0; border-top: 1px solid #444; margin: 24px 0; }
         <label><input type="checkbox" name="showSeconds" class="checkbox" %DISP_SEC%> Pokazuj sekundy</label>
         <label>Serwer NTP <input name="ntpServer" value="%DISP_NTP%"></label>
         <button type="submit">Zapisz ustawienia</button>
+    </form>
+    
+    <h2>WYSYŁANIE WIADOMOŚCI</h2>
+    <form id="messageForm" onsubmit="return false;">
+        <label>Tekst wiadomości:
+            <textarea id="runtimeMessage" style="width:100%; height:60px; border:1px solid #666; background:#222; color:#eee; padding:8px; border-radius:4px;" maxlength="127" placeholder="Wpisz wiadomość..."></textarea>
+        </label>
+        <label>Czas wyświetlania (ms): <span id="msgTimeValue">5000</span>
+            <input type="range" id="runtimeMessageTime" min="1000" max="30000" step="1000" value="5000" oninput="document.getElementById('msgTimeValue').textContent=this.value">
+        </label>
+        <label>Kolor wiadomości:
+            <input type="color" id="runtimeMessageColor" value="#00FF00" style="width:100%; height:40px; cursor:pointer;">
+        </label>
+        <button type="button" onclick="sendRuntimeMessage()" style="background:#ff9800;">Wyślij wiadomość</button>
     </form>
     
     <h2>ANIM (ściemnianie)</h2>
@@ -411,6 +426,35 @@ function applyBrightnessOnly() {
         body: 'value=' + encodeURIComponent(brightness)
     }).then(r=>r.json()).then(j=>{
         if(!j.ok) alert('✗ Błąd ustawienia jasności');
+    }).catch(e => alert('✗ Błąd sieci: ' + e));
+}
+function sendRuntimeMessage() {
+    const msgText = document.getElementById('runtimeMessage');
+    const msgTime = document.getElementById('runtimeMessageTime');
+    const msgColor = document.getElementById('runtimeMessageColor');
+    
+    if (!msgText.value.trim()) {
+        alert('✗ Wpisz wiadomość');
+        return;
+    }
+    
+    const color = msgColor.value.replace('#', '').toUpperCase();
+    const params = new URLSearchParams();
+    params.append('message', msgText.value);
+    params.append('message_time', msgTime.value);
+    params.append('message_color', color);
+    
+    fetch('/control_form', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: params.toString()
+    }).then(r=>r.json()).then(j=>{
+        if (j.ok) {
+            alert('✓ Wiadomość wysłana');
+            msgText.value = '';
+        } else {
+            alert('✗ Błąd: ' + (j.error || 'nieznany'));
+        }
     }).catch(e => alert('✗ Błąd sieci: ' + e));
 }
 function saveAnimationSchedule() {
@@ -1042,6 +1086,52 @@ void webPanel_setup() {
 
     webServer.on("/test_mqtt", HTTP_POST, []() {
         webServer.send(200, "text/plain", "Test MQTT niezaimplementowany.");
+    });
+
+    // === API Logs endpoint ===
+    webServer.on("/api/logs", HTTP_GET, []() {
+        uint32_t sinceSeq = 0;
+        uint16_t limit = 50;
+        
+        if (webServer.hasArg("since")) {
+            sinceSeq = (uint32_t)atol(webServer.arg("since").c_str());
+        }
+        if (webServer.hasArg("limit")) {
+            limit = (uint16_t)atoi(webServer.arg("limit").c_str());
+        }
+        
+        String jsonResponse;
+        app_logger_build_json(sinceSeq, limit, jsonResponse);
+        webServer.send(200, "application/json", jsonResponse);
+    });
+
+    // === Logs control endpoints ===
+    webServer.on("/logs_enabled", HTTP_POST, []() {
+        bool enabled = (webServer.arg("enabled") == "true" || webServer.arg("enabled") == "1");
+        app_logger_set_enabled(enabled);
+        webServer.send(200, "application/json", "{\"ok\":true}");
+    });
+
+    webServer.on("/clear_logs", HTTP_POST, []() {
+        app_logger_clear();
+        webServer.send(200, "application/json", "{\"ok\":true}");
+    });
+
+    webServer.on("/download_logs", HTTP_GET, []() {
+        uint32_t sinceSeq = 0;
+        uint16_t limit = 5000;
+        
+        if (webServer.hasArg("since")) {
+            sinceSeq = (uint32_t)atol(webServer.arg("since").c_str());
+        }
+        
+        String csv = "seq,ms,message\n";
+        
+        // We'll do a quick export as CSV
+        String jsonResponse;
+        app_logger_build_json(sinceSeq, limit, jsonResponse);
+        
+        webServer.send(200, "text/csv", csv);
     });
 
     // === RGB/Animation control endpoint ===

@@ -17,6 +17,7 @@
 #define ANIM_WAVE      2
 #define ANIM_PULSE     3
 #define ANIM_NIGHT     4
+#define ANIM_RAINBOW_BACKGROUND 5
 
 extern CRGB leds[NUM_LEDS];
 extern uint8_t globalBrightness;
@@ -61,7 +62,6 @@ void display_drawText(const char* text, int16_t offset, CRGB color);
 void display_drawLamp();
 void display_drawMessage(const char* text, int16_t offset, CRGB color);
 void display_drawCornerCalibration();
-void display_triggerFunClockAnimation();
 void display_triggerFunClockMirror();
 void display_triggerFunClockRainbow();
 void display_triggerFunClockHoursSlide();
@@ -71,14 +71,14 @@ void display_triggerFunClockUpsideDown();
 void display_triggerFunClockRotate180();
 void display_triggerFunClockFullRotate();
 void display_triggerFunClockMiddleSwap();
-void display_triggerFunClockSplitHalves();
 void display_triggerFunClockTetris();
 void display_triggerFunClockPileup();
 void display_triggerFunClockNegative();
+void display_triggerFunClockRainbowBackground();
 void display_setFunClockIntervalSeconds(uint16_t seconds);
 void display_resetFunClockNextEffectTimer();
 uint32_t display_getFunClockCompletedEffectsCount();
-void display_setFunClockEffectsEnabled(bool moveEnabled, bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool matrixSidewaysEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool splitHalvesEnabled, bool tetrisEnabled, bool pileupEnabled, bool negativeEnabled);
+void display_setFunClockEffectsEnabled(bool mirrorEnabled, bool rainbowEnabled, bool hoursSlideEnabled, bool matrixFontEnabled, bool matrixSidewaysEnabled, bool upsideDownEnabled, bool rotate180Enabled, bool fullRotateEnabled, bool middleSwapEnabled, bool tetrisEnabled, bool pileupEnabled, bool rainbowBackgroundEnabled, bool negativeEnabled);
 void display_suppressFunClockEffects(uint16_t durationMs);
 
 // === Animation functions ===
@@ -87,5 +87,6 @@ void anim_fade();
 void anim_wave();
 void anim_pulse();
 void anim_night();
+void anim_rainbow_background();
 
 #endif // DISPLAY_H

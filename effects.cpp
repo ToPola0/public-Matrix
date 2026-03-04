@@ -66,34 +66,66 @@ void effects_firework() {
 // Quotes scrolling
 static uint32_t lastScroll = 0;
 static int16_t scrollOffset = LED_WIDTH;
-static char currentQuote[128] = "";
+static char currentQuote[256] = "";
+static char lastLoadedQuote[256] = "";  // Track original text for comparison
 static uint32_t quoteStartMs = 0;
 static uint32_t quoteFrameCount = 0;
+static int16_t quoteEndOffset = 0;  // Pre-calculate end offset to avoid strlen() each frame
 
 bool effects_quotes(const char* text) {
-    if (text && text[0] != '\0' && strcmp(currentQuote, text) != 0) {
+    // Check if quote text is new (compare original, not normalized)
+    if (text && text[0] != '\0' && strcmp(lastLoadedQuote, text) != 0) {
+        // Clear buffer first to ensure clean state
+        memset(currentQuote, 0, sizeof(currentQuote));
+        // Store quote directly without normalization - display_drawText() handles UTF-8
         strlcpy(currentQuote, text, sizeof(currentQuote));
+        strlcpy(lastLoadedQuote, text, sizeof(lastLoadedQuote));  // Remember original
+        
+        // Pre-calculate end offset based on normalized string length
+        size_t quoteLen = strlen(currentQuote);
+        quoteEndOffset = -((int16_t)quoteLen * 6);
+        
         scrollOffset = LED_WIDTH;
         quoteStartMs = millis();
         quoteFrameCount = 0;
-        app_logf("[QUOTE] START: %s (len=%u) animSpeed=%u", text, (unsigned)strlen(text), animation_speed);
+        lastScroll = millis();  // Reset scroll timer when starting new quote
+        app_logf("[QUOTE] START: %s (len=%zu endOffset=%d) animSpeed=%u", currentQuote, quoteLen, quoteEndOffset, animation_speed);
     }
     if (currentQuote[0] == '\0') {
         return true;
     }
     uint8_t speed = animation_speed;
     if (speed < 1) speed = 1;
-    uint16_t scrollStepMs = (uint16_t)(30U / speed);
+    uint16_t scrollStepMs = (uint16_t)(60U / speed);
     if (scrollStepMs < 6U) scrollStepMs = 6U;
-    if (millis() - lastScroll > scrollStepMs) {
-        scrollOffset--;
-        lastScroll = millis();
-        quoteFrameCount++;
+    
+    uint32_t now = millis();
+    uint32_t timeSinceLastScroll = now - lastScroll;
+    
+    // Calculate how many scroll steps should have happened
+    uint32_t stepsToScroll = timeSinceLastScroll / scrollStepMs;
+    
+    if (stepsToScroll > 0) {
+        // Apply all missed scroll steps to prevent gaps
+        for (uint32_t step = 0; step < stepsToScroll; step++) {
+            scrollOffset--;
+        }
+        lastScroll = now;
+        quoteFrameCount += stepsToScroll;
+        
+        // Debug logging every 10 steps
+        if (quoteFrameCount % 10 == 0) {
+            app_logf("[SCROLL] frame=%lu offset=%d elapsed_ms=%lu steps=%lu scrollStep=%u", 
+                quoteFrameCount, scrollOffset, timeSinceLastScroll, stepsToScroll, scrollStepMs);
+        }
     }
+    
     display_clear();
     display_drawText(currentQuote, scrollOffset, quote_color);
     display_show();
-    if (scrollOffset < -((int)strlen(currentQuote) * 6)) {
+    
+    // Use pre-calculated end offset instead of strlen every frame
+    if (scrollOffset < quoteEndOffset) {
         uint32_t totalMs = millis() - quoteStartMs;
         uint32_t fps = (quoteFrameCount * 1000) / (totalMs > 0 ? totalMs : 1);
         app_logf("[QUOTE] DONE: frames=%lu ms=%lu fps=%lu", quoteFrameCount, totalMs, fps);

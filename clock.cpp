@@ -5,7 +5,7 @@
 #include "app_logger.h"
 
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 3600, 60000);
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 3600, 5000);  // timeout: 5s zamiast 60s!
 uint8_t currentHour = 0, currentMinute = 0, currentSecond = 0;
 bool colonState = true;
 static uint32_t lastColonToggle = 0;

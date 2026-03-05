@@ -56,6 +56,8 @@ void updateLEDs();
 void display_setBrightness(uint8_t brightness);
 void display_setColor(CRGB color);
 void display_setNegative(bool enabled);
+void display_setMatrixRotate180(bool enabled);
+bool display_getMatrixRotate180();
 uint16_t XY(uint8_t x, uint8_t y);
 void display_drawClock(uint8_t hour, uint8_t minute, uint8_t second, bool colon, bool showSeconds);
 void display_drawText(const char* text, int16_t offset, CRGB color);

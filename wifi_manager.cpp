@@ -10,8 +10,10 @@
 #include "web_panel.h"
 #include "mqtt_manager.h"
 #include "app_logger.h"
+#include "ota_manager.h"
 #include <ArduinoJson.h>
 #include <stdlib.h>
+#include <esp_ota_ops.h>
 
 static const uint8_t kLampDefaultBrightness = 64;
 static const uint8_t kLampStartupBrightnessCap = 96;
@@ -114,11 +116,13 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
     bool fxTetris = preferences.getUChar("fxTetris", 1) == 1;
     bool fxPileup = preferences.getUChar("fxPileup", 1) == 1;
     bool fxRainbowBackground = preferences.getUChar("fxRainbowBackground", 1) == 1;
+    bool displayRotate180 = preferences.getUChar("displayRotate180", 1) == 1;
     bool displayLampMode = preferences.getUChar("displayLampMode", 0) == 1;
     bool displayNegative = preferences.getUChar("displayNegative", 0) == 1;
     bool fxQuotes = preferences.getUChar("quotes_enabled", 1) == 1;
     display_setFunClockEffectsEnabled(fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, fxTetris, fxPileup, fxRainbowBackground, displayNegative);
     display_setNegative(false);
+    display_setMatrixRotate180(displayRotate180);
     display_mode = displayLampMode ? DISPLAY_MODE_LAMP : DISPLAY_MODE_CLOCK;
     mainConfig.schedule.random_quotes_enabled = fxQuotes;
 
@@ -153,7 +157,7 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
         message_color = parsedLampColor;
     }
 
-    Serial.printf("[WiFi] Startup apply: brightness=%d speed=%d color=%s lampBrightness=%d lampColor=%s interval=%ds fx=%d%d%d%d%d%d%d%d%d%d%d%d lamp=%d neg=%d quotes=%d\n",
+    Serial.printf("[WiFi] Startup apply: brightness=%d speed=%d color=%s lampBrightness=%d lampColor=%s interval=%ds fx=%d%d%d%d%d%d%d%d%d%d%d%d rotMap=%d lamp=%d neg=%d quotes=%d\n",
         savedBrightness,
         savedAnimSpeed,
         savedColor.c_str(),
@@ -171,6 +175,7 @@ static void applyStoredDisplaySettings(Preferences& preferences) {
         fxMiddleSwap ? 1 : 0,
         fxTetris ? 1 : 0,
         fxPileup ? 1 : 0,
+        displayRotate180 ? 1 : 0,
         displayLampMode ? 1 : 0,
         displayNegative ? 1 : 0,
         fxQuotes ? 1 : 0);
@@ -454,6 +459,10 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 .toast.err{border-left-color:#f44336;background:#2a1717;color:#ffe5e5}
 .logs-box{margin-top:8px;background:#0b121b;border:1px solid #2c3a4a;border-radius:8px;padding:8px;height:220px;overflow:auto;font-family:Consolas,monospace;font-size:.78em;line-height:1.35;white-space:pre-wrap}
 .logs-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ota-progress{height:14px;border:1px solid #2c3a4a;border-radius:999px;background:#0b121b;overflow:hidden;margin:8px 0}
+.ota-progress>div{height:100%;width:0%;background:linear-gradient(90deg,#2f78c4,#4ea3ff);transition:width .2s}
+.ota-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ota-row button{flex:1 1 140px}
 @media (max-width:480px){
     body{padding:7px}
     h1{font-size:1.05em}
@@ -479,7 +488,8 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button class='tb' onclick='showTab(6)'>Plan</button>
 <button class='tb' onclick='showTab(7)'>MQTT</button>
 <button class='tb' onclick='showTab(8)'>WiFi</button>
-<button class='tb' onclick='showTab(9)' style='display:none'>Logi</button>
+<button class='tb' onclick='showTab(9)'>OTA</button>
+<button class='tb' onclick='showTab(10)' style='display:none'>Logi</button>
 </div>
 
 <!-- TAB 0: INFO -->
@@ -497,7 +507,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <div class='i'><strong>OTA:</strong> <span id='sys-ota' class='pill'>--</span></div>
 <div class='i'><strong>RAM:</strong> <span id='sys-ram' class='pill'>--</span></div>
 </div>
-<button type='button' onclick='showTab(9)'>Logi</button>
+<button type='button' onclick='showTab(10)'>Logi</button>
 <button onclick='location.reload()'>Refresh</button>
 <button class='d' onclick='restartDevice()'>Restart urządzenia</button>
 <button onclick='logoutPanel()'>Wyloguj</button>
@@ -548,6 +558,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <label><input type='checkbox' name='fxMiddleSwap' id='fxMiddleSwap' checked style='width:auto' onchange='saveAnimationSelection()'> Wszystkie cyfry: naprzemienny przejazd</label>
 <label><input type='checkbox' name='fxTetris' id='fxTetris' checked style='width:auto' onchange='saveAnimationSelection()'> Tetris: cyfry spadają z góry</label>
 <label><input type='checkbox' name='fxPileup' id='fxPileup' checked style='width:auto' onchange='saveAnimationSelection()'> Karambol: cyfry i dwukropki na lewo</label>
+<label><input type='checkbox' name='displayRotate180' id='displayRotate180' style='width:auto' onchange='saveMatrixRotateToggle()'> Obróć matrycę 180°</label>
 <label><input type='checkbox' name='displayNegative' id='displayNegative' style='width:auto' onchange='saveNegativeToggle()'> Negatyw wyświetlania</label>
 <label><input type='checkbox' name='fxRainbowBackground' id='fxRainbowBackground' checked style='width:auto' onchange='saveAnimationSelection()'> Tęczowe tło z cyframi</label>
 <label><input type='checkbox' name='fxQuotes' id='fxQuotes' checked style='width:auto' onchange='saveQuotesToggle()'> Cytaty</label>
@@ -676,7 +687,28 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button class='d' onclick='if(confirm("Wykonać pełny reset ustawień WiFi?"))location.href="/resetwifi"'>Reset WiFi (całość)</button>
 </div>
 
-<!-- TAB 9: LOGI -->
+<!-- TAB 9: OTA -->
+<div class='tc'>
+<h2>OTA firmware update</h2>
+<div class='i'><strong>Status:</strong> <span id='ota-status-text'>Gotowy</span></div>
+<div class='i'><strong>Wersja:</strong> <span id='ota-version-text'>--</span></div>
+<div class='i'><strong>Kompilacja:</strong> <span id='ota-build-text'>--</span></div>
+<div class='i'><strong>Rozmiar szkicu:</strong> <span id='ota-sketch-size'>--</span></div>
+<div class='i'><strong>Aktywny slot:</strong> <span id='ota-active-slot'>--</span></div>
+<div class='i'><strong>Następny slot:</strong> <span id='ota-next-slot'>--</span></div>
+<label>Plik firmware (.bin)</label>
+<input type='file' id='ota-file' accept='.bin'>
+<div class='ota-progress'><div id='ota-progress-bar'></div></div>
+<div class='i'><strong>Postęp:</strong> <span id='ota-progress-text'>0%</span></div>
+<div class='ota-row'>
+<button type='button' id='ota-upload-btn' onclick='startOtaUpload()'>Wyślij firmware</button>
+<button type='button' id='ota-switch-slot-btn' onclick='switchOtaSlot()'>Przełącz slot i restart</button>
+<button type='button' id='ota-refresh-btn' onclick='loadOtaStatus()'>Odśwież status</button>
+</div>
+<div class='i' style='font-size:.82em'>Po wysłaniu poprawnego pliku urządzenie zrestartuje się automatycznie.</div>
+</div>
+
+<!-- TAB 10: LOGI -->
 <div class='tc'>
 <h2>Logi</h2>
 <div class='logs-controls'>
@@ -701,6 +733,11 @@ document.head.appendChild(s);
 let lampModeEnabled=false;
 let logsLastSeq=0;
 let logsPollTimer=null;
+let otaPollTimer=null;
+let otaUploadActive=false;
+let otaUiProgress=0;
+let otaUiTargetProgress=0;
+let otaUiProgressTimer=null;
 
 function showTab(i){
 document.querySelectorAll('.tc').forEach(e=>e.classList.remove('a'));
@@ -714,7 +751,8 @@ if(i===6)loadSchedule();
 if(i===2)loadAnimationsConfig();
 if(i===7)loadMqttConfig();
 if(i===8)loadWifiConfig();
-if(i===9){loadLogsNow(true);startLogsPolling();}else{stopLogsPolling();}
+if(i===9){loadOtaStatus();startOtaStatusPolling();}else{stopOtaStatusPolling();}
+if(i===10){loadLogsNow(true);startLogsPolling();}else{stopLogsPolling();}
 }
 
 function logsAppend(items,replaceAll=false){
@@ -761,7 +799,7 @@ logsPollTimer=setInterval(()=>{
 const autoEl=document.getElementById('logsAuto');
 if(autoEl && autoEl.checked===false)return;
 const tabIndex=[...document.querySelectorAll('.tc')].findIndex(e=>e.classList.contains('a'));
-if(tabIndex!==9)return;
+if(tabIndex!==10)return;
 loadLogsNow(false);
 },1000);
 }
@@ -791,6 +829,132 @@ showToast('✓ Logi wyczyszczone',true);
 showToast('❌ Błąd czyszczenia logów',false);
 }
 }).catch(e=>{console.log('Error:',e);showToast('❌ Błąd połączenia',false)});
+}
+
+function otaSetProgress(percent){
+otaUiTargetProgress=Math.max(0,Math.min(100,Number(percent||0)));
+if(!otaUiProgressTimer){
+otaUiProgressTimer=setInterval(()=>{
+const delta=otaUiTargetProgress-otaUiProgress;
+if(Math.abs(delta)<0.2){
+otaUiProgress=otaUiTargetProgress;
+}else{
+otaUiProgress+=delta*0.35;
+}
+const p=Math.max(0,Math.min(100,Math.round(otaUiProgress)));
+const bar=document.getElementById('ota-progress-bar');
+const txt=document.getElementById('ota-progress-text');
+if(bar)bar.style.width=p+'%';
+if(txt)txt.textContent=p+'%';
+if(otaUiProgress===otaUiTargetProgress){
+clearInterval(otaUiProgressTimer);
+otaUiProgressTimer=null;
+}
+},50);
+}
+}
+
+function loadOtaStatus(){
+fetch('/api/ota-status').then(r=>r.json()).then(d=>{
+const statusEl=document.getElementById('ota-status-text');
+const versionEl=document.getElementById('ota-version-text');
+const buildEl=document.getElementById('ota-build-text');
+const sketchSizeEl=document.getElementById('ota-sketch-size');
+const activeSlotEl=document.getElementById('ota-active-slot');
+const nextSlotEl=document.getElementById('ota-next-slot');
+if(statusEl)statusEl.textContent=d.status||'Gotowy';
+if(versionEl)versionEl.textContent=d.version||'--';
+if(buildEl)buildEl.textContent=(d.buildDate&&d.buildTime)?(d.buildDate+' '+d.buildTime):'--';
+if(sketchSizeEl)sketchSizeEl.textContent=(d.sketchSize!==undefined)?(String(d.sketchSize)+' B'):'--';
+if(activeSlotEl)activeSlotEl.textContent=d.activeSlot||'--';
+if(nextSlotEl)nextSlotEl.textContent=d.nextSlot||'--';
+const total=Number(d.total||0);
+const written=Number(d.written||0);
+let percent=0;
+if(total>0)percent=(written*100.0)/total;
+if(d.updating===true && total===0 && written===0){
+percent=1;
+}
+otaSetProgress(percent);
+}).catch(e=>console.log('Error:',e));
+}
+
+function switchOtaSlot(){
+if(otaUploadActive){
+showToast('❌ OTA upload w toku',false);
+return;
+}
+if(!confirm('Przełączyć slot OTA i zrestartować urządzenie?'))return;
+fetch('/api/ota-switch-slot',{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+showToast('✓ Przełączono slot na '+(d.slot||'next')+', restart...',true);
+}else{
+showToast('❌ '+(d.error||'Nie udało się przełączyć slotu'),false);
+}
+}).catch(e=>{console.log('Error:',e);showToast('❌ Błąd przełączania slotu',false)});
+}
+
+function startOtaStatusPolling(){
+if(otaPollTimer)return;
+otaPollTimer=setInterval(()=>{
+loadOtaStatus();
+},1000);
+}
+
+function stopOtaStatusPolling(){
+if(!otaPollTimer)return;
+clearInterval(otaPollTimer);
+otaPollTimer=null;
+}
+
+function startOtaUpload(){
+if(otaUploadActive)return;
+const fileInput=document.getElementById('ota-file');
+const uploadBtn=document.getElementById('ota-upload-btn');
+if(!fileInput||!fileInput.files||fileInput.files.length===0){
+showToast('❌ Wybierz plik .bin',false);
+return;
+}
+const fw=fileInput.files[0];
+if(!String(fw.name||'').toLowerCase().endsWith('.bin')){
+showToast('❌ Niepoprawny plik (wymagany .bin)',false);
+return;
+}
+const fd=new FormData();
+fd.append('firmware',fw);
+otaUploadActive=true;
+if(uploadBtn)uploadBtn.disabled=true;
+otaSetProgress(0);
+
+const xhr=new XMLHttpRequest();
+xhr.open('POST','/ota-upload?fwsize='+encodeURIComponent(String(fw.size||0)),true);
+xhr.setRequestHeader('X-Firmware-Size', String(fw.size||0));
+xhr.upload.onprogress=(ev)=>{
+if(ev.lengthComputable && ev.total>0){
+otaSetProgress((ev.loaded*100.0)/ev.total);
+}
+};
+xhr.onload=()=>{
+otaUploadActive=false;
+if(uploadBtn)uploadBtn.disabled=false;
+let resp={};
+try{resp=JSON.parse(xhr.responseText||'{}');}catch(_){resp={};}
+if(xhr.status>=200 && xhr.status<300 && resp.success===true){
+otaSetProgress(100);
+showToast('✓ Firmware wysłany, restart urządzenia...',true);
+}else{
+const msg=resp.error||('HTTP '+xhr.status);
+showToast('❌ OTA: '+msg,false);
+loadOtaStatus();
+}
+};
+xhr.onerror=()=>{
+otaUploadActive=false;
+if(uploadBtn)uploadBtn.disabled=false;
+showToast('❌ Błąd połączenia podczas OTA',false);
+loadOtaStatus();
+};
+xhr.send(fd);
 }
 
 const saveTimers={};
@@ -1239,6 +1403,7 @@ document.getElementById('fxMiddleSwap').checked=(cfg.fxMiddleSwap!==false);
 document.getElementById('fxTetris').checked=(cfg.fxTetris!==false);
 document.getElementById('fxPileup').checked=(cfg.fxPileup!==false);
 document.getElementById('fxRainbowBackground').checked=(cfg.fxRainbowBackground!==false);
+document.getElementById('displayRotate180').checked=(cfg.displayRotate180===true);
 document.getElementById('displayNegative').checked=(cfg.displayNegative===true);
 document.getElementById('fxQuotes').checked=(cfg.fxQuotes!==false);
 const cp=document.getElementById('acp');
@@ -1353,6 +1518,13 @@ fd.append('displayNegative',(neg&&neg.checked)?'1':'0');
 postJsonForm('/save-animations',fd)
 .then(d=>{if(!d.success)console.log('❌ '+(d.message||'Błąd zapisu negatywu'));}).catch(e=>console.log('Error:',e));
 }
+function saveMatrixRotateToggle(){
+const fd=new FormData();
+const rot=document.getElementById('displayRotate180');
+fd.append('displayRotate180',(rot&&rot.checked)?'1':'0');
+postJsonForm('/save-animations',fd)
+.then(d=>{if(!d.success)console.log('❌ '+(d.message||'Błąd zapisu obrotu matrycy'));}).catch(e=>console.log('Error:',e));
+}
 function saveLampConfig(){
 const fd=new FormData();
 fd.append('displayLampMode',lampModeEnabled?'1':'0');
@@ -1388,6 +1560,7 @@ window.location.href='/?login='+Date.now();
 }
 document.addEventListener('DOMContentLoaded',()=>{
 loadWifiConfig();loadQuotes();loadBirthdays();loadSchedule();loadAnimationsConfig();loadLampConfig();loadMqttConfig();
+loadOtaStatus();
 const cp=document.getElementById('acp');
 const ac=document.getElementById('ac');
 if(cp&&ac){
@@ -1716,6 +1889,9 @@ void WifiManager::setupStation() {
 
 void WifiManager::setupWebServer(WebServer* webServer) {
     server = webServer;
+    const char* headerKeys[] = {"X-Firmware-Size", "Content-Length"};
+    server->collectHeaders(headerKeys, 2);
+
     auto authWrap = [this](void (WifiManager::*handler)()) {
         return [this, handler]() {
             if (!ensureAuthenticated()) return;
@@ -1778,6 +1954,7 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/save-quotes-enabled", HTTP_POST, authWrap(&WifiManager::handleSaveQuotesEnabled));
     server->on("/api/quotes-config", authWrap(&WifiManager::handleApiQuotesConfig));
     server->on("/api/ota-status", authWrap(&WifiManager::handleApiOtaStatus));
+    server->on("/api/ota-switch-slot", HTTP_POST, authWrap(&WifiManager::handleApiOtaSwitchSlot));
     server->on("/api/colors-palette", authWrap(&WifiManager::handleApiColorsPalette));
     server->on("/ota-upload", HTTP_POST, [this]() {
         if (!ensureAuthenticated()) return;
@@ -2118,6 +2295,7 @@ void WifiManager::handleApiAnimationsConfig() {
     bool fxTetris = preferences.getUChar("fxTetris", 1) == 1;
     bool fxPileup = preferences.getUChar("fxPileup", 1) == 1;
     bool fxRainbowBackground = preferences.getUChar("fxRainbowBackground", 1) == 1;
+    bool displayRotate180 = preferences.getUChar("displayRotate180", 1) == 1;
     bool displayNegative = preferences.getUChar("displayNegative", 0) == 1;
     bool fxQuotes = preferences.getUChar("quotes_enabled", 1) == 1;
     String json = "{";
@@ -2138,6 +2316,7 @@ void WifiManager::handleApiAnimationsConfig() {
     json += "\"fxTetris\":" + String(fxTetris ? "true" : "false") + ",";
     json += "\"fxPileup\":" + String(fxPileup ? "true" : "false") + ",";
     json += "\"fxRainbowBackground\":" + String(fxRainbowBackground ? "true" : "false") + ",";
+    json += "\"displayRotate180\":" + String(displayRotate180 ? "true" : "false") + ",";
     json += "\"displayNegative\":" + String(displayNegative ? "true" : "false") + ",";
     json += "\"fxQuotes\":" + String(fxQuotes ? "true" : "false");
     json += "}";
@@ -2741,6 +2920,7 @@ void WifiManager::handleSaveAnimations() {
         server->hasArg("fxTetris") ||
         server->hasArg("fxPileup") ||
         server->hasArg("fxRainbowBackground") ||
+        server->hasArg("displayRotate180") ||
         server->hasArg("displayNegative") ||
         server->hasArg("fxQuotes");
     bool fullAnimFormUpdate = server->hasArg("fullAnimForm") || hasBrightnessArg || hasColorArg || hasAnyAnimToggleArg;
@@ -2769,6 +2949,7 @@ void WifiManager::handleSaveAnimations() {
     bool fxTetris = fullAnimFormUpdate ? boolArgValue("fxTetris", preferences.getUChar("fxTetris", 1) == 1) : (preferences.getUChar("fxTetris", 1) == 1);
     bool fxPileup = fullAnimFormUpdate ? boolArgValue("fxPileup", preferences.getUChar("fxPileup", 1) == 1) : (preferences.getUChar("fxPileup", 1) == 1);
     bool fxRainbowBackground = fullAnimFormUpdate ? boolArgValue("fxRainbowBackground", preferences.getUChar("fxRainbowBackground", 1) == 1) : (preferences.getUChar("fxRainbowBackground", 1) == 1);
+    bool displayRotate180 = fullAnimFormUpdate ? boolArgValue("displayRotate180", preferences.getUChar("displayRotate180", 1) == 1) : (preferences.getUChar("displayRotate180", 1) == 1);
     bool displayNegative = fullAnimFormUpdate ? boolArgValue("displayNegative", preferences.getUChar("displayNegative", 0) == 1) : (preferences.getUChar("displayNegative", 0) == 1);
     bool fxQuotes = fullAnimFormUpdate ? boolArgValue("fxQuotes", preferences.getUChar("quotes_enabled", 1) == 1) : (preferences.getUChar("quotes_enabled", 1) == 1);
     bool lampEnabled = preferences.getUChar("displayLampMode", 0) == 1;
@@ -2802,6 +2983,7 @@ void WifiManager::handleSaveAnimations() {
         preferences.putUChar("fxTetris", fxTetris ? 1 : 0);
         preferences.putUChar("fxPileup", fxPileup ? 1 : 0);
         preferences.putUChar("fxRainbowBackground", fxRainbowBackground ? 1 : 0);
+        preferences.putUChar("displayRotate180", displayRotate180 ? 1 : 0);
         preferences.putUChar("displayNegative", displayNegative ? 1 : 0);
         preferences.putUChar("quotes_enabled", fxQuotes ? 1 : 0);
     }
@@ -2814,6 +2996,7 @@ void WifiManager::handleSaveAnimations() {
     display_setFunClockIntervalSeconds((uint16_t)clockAnimInterval);
     display_setFunClockEffectsEnabled(fxMirror, fxRainbow, fxHoursSlide, fxMatrixFont, fxMatrixSideways, fxUpsideDown, fxRotate180, fxFullRotate, fxMiddleSwap, fxTetris, fxPileup, fxRainbowBackground, displayNegative);
     display_setNegative(false);
+    display_setMatrixRotate180(displayRotate180);
     mainConfig.schedule.random_quotes_enabled = fxQuotes;
 
     CRGB parsedColor;
@@ -2835,7 +3018,7 @@ void WifiManager::handleSaveAnimations() {
         modeApplied = true;
     }
 
-    Serial.printf("[WiFi] Brightness applied: %d, Speed: %d, Color: %s, ClockAnimInterval: %ds, fx=%d%d%d%d%d%d%d%d%d%d%d%d, lamp=%d, neg=%d, quotes=%d\n",
+    Serial.printf("[WiFi] Brightness applied: %d, Speed: %d, Color: %s, ClockAnimInterval: %ds, fx=%d%d%d%d%d%d%d%d%d%d%d%d, rotMap=%d, lamp=%d, neg=%d, quotes=%d\n",
         brightness,
         animSpeed,
         animColor.c_str(),
@@ -2852,6 +3035,7 @@ void WifiManager::handleSaveAnimations() {
         fxTetris ? 1 : 0,
         fxPileup ? 1 : 0,
         fxRainbowBackground ? 1 : 0,
+        displayRotate180 ? 1 : 0,
         lampEnabled ? 1 : 0,
         displayNegative ? 1 : 0,
         fxQuotes ? 1 : 0);
@@ -3057,12 +3241,53 @@ void WifiManager::handleSaveQuotesEnabled() {
 
 // OTA Status endpoint
 void WifiManager::handleApiOtaStatus() {
+    const esp_partition_t* bootPartition = esp_ota_get_boot_partition();
+    const esp_partition_t* nextPartition = esp_ota_get_next_update_partition(bootPartition);
+    const char* bootLabel = (bootPartition && bootPartition->label) ? bootPartition->label : "unknown";
+    const char* nextLabel = (nextPartition && nextPartition->label) ? nextPartition->label : "unknown";
+
     String json = "{";
     json += "\"version\":\"1.0.0\",";
-    json += "\"status\":\"Gotowy\",";
-    json += "\"updating\":" + String(otaUpdating ? "true" : "false");
+    json += "\"buildDate\":\"" + String(__DATE__) + "\",";
+    json += "\"buildTime\":\"" + String(__TIME__) + "\",";
+    json += "\"sketchSize\":" + String((unsigned long)ESP.getSketchSize()) + ",";
+    json += "\"status\":\"";
+    json += otaUpdating ? "Aktualizacja" : "Gotowy";
+    json += "\",";
+    json += "\"updating\":" + String(otaUpdating ? "true" : "false") + ",";
+    json += "\"written\":" + String((unsigned long)otaProgress) + ",";
+    json += "\"total\":" + String((unsigned long)otaTotal) + ",";
+    json += "\"activeSlot\":\"" + String(bootLabel) + "\",";
+    json += "\"nextSlot\":\"" + String(nextLabel) + "\"";
     json += "}";
     server->send(200, "application/json", json);
+}
+
+void WifiManager::handleApiOtaSwitchSlot() {
+    if (otaUpdating || externalOtaActive) {
+        server->send(409, "application/json", "{\"success\":false,\"error\":\"OTA in progress\"}");
+        return;
+    }
+
+    const esp_partition_t* bootPartition = esp_ota_get_boot_partition();
+    const esp_partition_t* nextPartition = esp_ota_get_next_update_partition(bootPartition);
+    if (!nextPartition) {
+        server->send(500, "application/json", "{\"success\":false,\"error\":\"No next slot\"}");
+        return;
+    }
+
+    esp_err_t err = esp_ota_set_boot_partition(nextPartition);
+    if (err != ESP_OK) {
+        server->send(500, "application/json", "{\"success\":false,\"error\":\"Switch failed\"}");
+        return;
+    }
+
+    const char* nextLabel = (nextPartition->label) ? nextPartition->label : "unknown";
+    app_logf("OTA manual slot switch requested: new_boot=%s", nextLabel);
+
+    server->send(200, "application/json", "{\"success\":true,\"slot\":\"" + String(nextLabel) + "\",\"restarting\":true}");
+    delay(400);
+    ESP.restart();
 }
 
 // OTA Upload handler - receive firmware file and update ESP32
@@ -3089,7 +3314,28 @@ void WifiManager::handleOtaUpload() {
         WiFi.setSleep(false);
         FastLED.setDither(0);
         otaProgress = 0;
-        otaTotal = upload.totalSize;
+        otaTotal = 0;
+        if (server->hasArg("fwsize")) {
+            long argSize = server->arg("fwsize").toInt();
+            if (argSize > 0) {
+                otaTotal = (size_t)argSize;
+            }
+        }
+        if (server->hasHeader("X-Firmware-Size")) {
+            long declaredSize = server->header("X-Firmware-Size").toInt();
+            if (declaredSize > 0) {
+                otaTotal = (size_t)declaredSize;
+            }
+        }
+        if (otaTotal == 0 && server->hasHeader("Content-Length")) {
+            long contentLen = server->header("Content-Length").toInt();
+            if (contentLen > 0) {
+                otaTotal = (size_t)contentLen;
+            }
+        }
+        if (otaTotal == 0 && upload.totalSize > 0) {
+            otaTotal = upload.totalSize;
+        }
         drawOtaProgressOnMatrix(0, otaTotal, false, true);
         
         // Begin OTA update with max available sketch space
@@ -3120,7 +3366,9 @@ void WifiManager::handleOtaUpload() {
         }
         
         otaProgress += upload.currentSize;
-        if (upload.totalSize > 0) {
+        // IMPORTANT: in HTTPUpload, totalSize can be running uploaded bytes.
+        // Do not overwrite otaTotal here, otherwise progress can stick at 100%.
+        if (otaTotal == 0 && upload.totalSize > otaProgress + upload.currentSize) {
             otaTotal = upload.totalSize;
         }
 
@@ -3140,6 +3388,7 @@ void WifiManager::handleOtaUpload() {
     else if (upload.status == UPLOAD_FILE_END) {
         if (Update.end(true)) {
             Serial.printf("[OTA] ✓ Aktualizacja zakończona: %d bajtów\n", otaProgress);
+            otaManager.armRollbackGuardForNextBoot();
             otaUpdating = false;
             externalOtaActive = false;
             FastLED.setDither(1);

@@ -39,6 +39,14 @@
 #define OTA_PORT 3232
 #define OTA_PASSWORD "12345678"
 
+// GitHub OTA auto-update (A/B, no USB required)
+// Set ENABLE to 1 and provide raw GitHub URLs for version.txt and firmware.bin.
+#define GITHUB_OTA_ENABLED 0
+#define GITHUB_OTA_VERSION_URL "https://raw.githubusercontent.com/ToPola0/public-Matrix/main/Firmware/version.txt"
+#define GITHUB_OTA_FIRMWARE_URL "https://raw.githubusercontent.com/ToPola0/public-Matrix/main/Firmware/firmware.bin"
+#define GITHUB_OTA_CHECK_INTERVAL_MS 3600000UL
+#define GITHUB_OTA_BOOT_DELAY_MS 30000UL
+
 // Build-time logs: 1 = verbose debug logs, 0 = only essential logs
 #define LOG_DEBUG_ENABLED 0
 

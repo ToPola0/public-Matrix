@@ -5,6 +5,7 @@
 #include <LittleFS.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
+#include <Update.h>
 #include <stdlib.h>
 #include "web_panel.h"
 #include "clock.h"
@@ -247,11 +248,21 @@ hr { border: 0; border-top: 1px solid #444; margin: 24px 0; }
     </form>
 </div>
 <div id="ota" class="tab-content">
-    <h2>OTA update</h2>
-    <form method="POST" action="/ota" enctype="multipart/form-data">
-        <input type="file" name="firmware">
-        <button type="submit">Wyślij</button>
-    </form>
+    <h2>Aktualizacja Firmware OTA</h2>
+    <div id="otaStatus" style="margin-bottom: 15px;"></div>
+    <div style="margin-bottom: 15px;">
+        <label>Plik firmware (.bin):</label>
+        <input type="file" id="firmwareFile" accept=".bin" style="padding: 10px;">
+    </div>
+    <div style="margin-bottom: 15px;">
+        <div style="background: #444; border-radius: 4px; overflow: hidden; height: 30px; margin-bottom: 10px;">
+            <div id="otaProgressBar" style="background: linear-gradient(90deg, #1976d2, #0d47a1); height: 100%; width: 0%; transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;"></div>
+        </div>
+        <div id="otaProgressText" style="text-align: center; color: #aaa; font-size: 12px; margin-bottom: 10px;">Gotowy</div>
+    </div>
+    <button id="otaUploadBtn" type="button" onclick="uploadFirmware()" style="background: #388e3c;">📤 Wyślij Firmware</button>
+    <button id="otaCancelBtn" type="button" onclick="cancelOtaUpload()" style="background: #d32f2f; display: none;">❌ Anuluj</button>
+    <div id="otaLog" style="margin-top: 15px; padding: 10px; background: #222; border-radius: 4px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 11px; color: #0f0; white-space: pre-wrap; word-wrap: break-word; display: none;"></div>
 </div>
 <div id="diagnostyka" class="tab-content">
     <h2>Diagnostyka Systemu</h2>
@@ -677,6 +688,112 @@ fetch('/api/logs?since=0&limit=5').then(r=>r.json()).then(d=>{
 });
 setInterval(loadLogs, 2000);
 
+// === OTA Upload Functions ===
+let otaAbortController = null;
+
+function uploadFirmware() {
+    const fileInput = document.getElementById('firmwareFile');
+    if (!fileInput.files || !fileInput.files[0]) {
+        alert('Wybierz plik firmware (.bin)');
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    if (!file.name.endsWith('.bin')) {
+        alert('Zły typ pliku! Wybierz plik .bin');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('firmware', file);
+    
+    // Disable buttons during upload
+    document.getElementById('otaUploadBtn').disabled = true;
+    document.getElementById('otaCancelBtn').style.display = 'inline-block';
+    document.getElementById('otaLog').style.display = 'block';
+    document.getElementById('otaLog').textContent = '';
+    
+    // Create abort controller for cancellation
+    otaAbortController = new AbortController();
+    
+    logOtaMsg('Wysyłanie firmware: ' + file.name + ' (' + Math.round(file.size / 1024) + ' KB)...');
+    
+    fetch('/ota', {
+        method: 'POST',
+        body: formData,
+        signal: otaAbortController.signal
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.ok) {
+            logOtaMsg('✓ Firmware wysłany pomyślnie!');
+            logOtaMsg('Urządzenie restartuje za ~5 sekund...');
+            document.getElementById('otaProgressBar').style.background = 'linear-gradient(90deg, #388e3c, #1b5e20)';
+            document.getElementById('otaProgressBar').style.width = '100%';
+            document.getElementById('otaProgressBar').textContent = '100%';
+            document.getElementById('otaProgressText').textContent = 'Ukończono - urządzenie restartuje...';
+            setTimeout(() => {
+                alert('Firmware zainstalowany! Urządzenie restartuje.');
+                location.reload();
+            }, 6000);
+        } else {
+            throw new Error(data.error || 'Nieznany błąd');
+        }
+    })
+    .catch(error => {
+        if (error.name === 'AbortError') {
+            logOtaMsg('❌ Wysyłanie anulowane');
+            document.getElementById('otaProgressBar').style.background = '#f44336';
+        } else {
+            logOtaMsg('❌ Błąd: ' + error.message);
+            document.getElementById('otaProgressBar').style.background = '#f44336';
+        }
+        document.getElementById('otaProgressBar').style.width = '100%';
+        document.getElementById('otaProgressBar').textContent = 'BŁĄD';
+    })
+    .finally(() => {
+        document.getElementById('otaUploadBtn').disabled = false;
+        document.getElementById('otaCancelBtn').style.display = 'none';
+    });
+}
+
+function cancelOtaUpload() {
+    if (otaAbortController) {
+        otaAbortController.abort();
+        logOtaMsg('Anulowanie wysyłania...');
+    }
+}
+
+function logOtaMsg(msg) {
+    const logDiv = document.getElementById('otaLog');
+    const timestamp = new Date().toLocaleTimeString();
+    logDiv.textContent += '[' + timestamp + '] ' + msg + '\n';
+    logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+// Monitor OTA progress via WebSocket or polling
+function monitorOtaProgress() {
+    fetch('/ota/status').then(r=>r.json()).then(data => {
+        if (data.progress !== undefined) {
+            const percent = Math.round(data.progress);
+            document.getElementById('otaProgressBar').style.width = percent + '%';
+            document.getElementById('otaProgressBar').textContent = percent + '%';
+            document.getElementById('otaProgressText').textContent = 'Wysyłanie: ' + percent + '% (' + data.uploaded + ' / ' + data.total + ' bajtów)';
+            
+            if (percent < 100) {
+                setTimeout(monitorOtaProgress, 500);
+            }
+        }
+    }).catch(() => {
+        // OTA not in progress or error
+    });
+}
+
 </script>
 </body>
 </html>
@@ -967,9 +1084,100 @@ void factoryReset() {
     ESP.restart();
 }
 
+// OTA update global state
+static size_t otaBytesReceived = 0;
+static size_t otaBytesTotal = 0;
+static bool otaError = false;
+static String otaErrorMsg = "";
+
+void handleOtaUploadProgress() {
+    HTTPUpload& upload = webServer.upload();
+    
+    if (upload.status == UPLOAD_FILE_START) {
+        app_logf("[WebOTA] Starting firmware upload: %s", upload.filename.c_str());
+        otaBytesReceived = 0;
+        otaError = false;
+        otaErrorMsg = "";
+        
+        // Check file size (must be bin file)
+        if (!upload.filename.endsWith(".bin")) {
+            app_log("[WebOTA] ERROR: Wrong file type. Must be .bin");
+            otaError = true;
+            otaErrorMsg = "Wrong file type";
+            return;
+        }
+        
+        // Start Update (A/B partition handling is automatic)
+        if (!Update.begin(upload.totalSize, U_FLASH)) {
+            app_logf("[WebOTA] ERROR: Update.begin() failed. Size: %d", upload.totalSize);
+            otaError = true;
+            otaErrorMsg = "Begin failed: " + String(Update.getError());
+            return;
+        }
+        
+        otaBytesTotal = upload.totalSize;
+        app_logf("[WebOTA] Ready to write %u bytes", otaBytesTotal);
+        
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (otaError) return;
+        
+        // Write chunk to firmware
+        size_t written = Update.write(upload.buf, upload.currentSize);
+        if (written != upload.currentSize) {
+            app_logf("[WebOTA] ERROR: Write mismatch. Expected %d, wrote %d", upload.currentSize, written);
+            otaError = true;
+            otaErrorMsg = "Write failed";
+            return;
+        }
+        
+        otaBytesReceived += upload.currentSize;
+        uint8_t percent = (uint8_t)((otaBytesReceived * 100UL) / otaBytesTotal);
+        
+        if (percent % 10 == 0 || otaBytesReceived == otaBytesTotal) {
+            app_logf("[WebOTA] Progress: %u%% (%u / %u bytes)", percent, otaBytesReceived, otaBytesTotal);
+        }
+        
+    } else if (upload.status == UPLOAD_FILE_END) {
+        if (otaError) {
+            Update.abort();
+            return;
+        }
+        
+        // Finalize update (bootloader will validate signature)
+        if (!Update.end(true)) {
+            app_logf("[WebOTA] ERROR: Update.end() failed. Error code: %d", Update.getError());
+            otaError = true;
+            otaErrorMsg = "End failed: " + String(Update.getError());
+            return;
+        }
+        
+        app_log("[WebOTA] SUCCESS! Firmware written and validated");
+        app_log("[WebOTA] Device will restart in 5 seconds...");
+        
+    } else if (upload.status == UPLOAD_FILE_ABORTED) {
+        app_log("[WebOTA] Upload aborted!");
+        Update.abort();
+        otaError = true;
+        otaErrorMsg = "Aborted";
+    }
+}
+
 void handleOtaUpdate() {
-    // Prosty placeholder – pełna obsługa OTA wymaga dodatkowego kodu
-    webServer.send(200, "text/plain", "OTA update not implemented in this example.");
+    // This is called after upload is complete
+    if (otaError) {
+        String errMsg = "{\"ok\":false,\"error\":\"" + otaErrorMsg + "\"}";
+        webServer.send(400, "application/json", errMsg);
+        return;
+    }
+    
+    // Success - send response before restart
+    webServer.send(200, "application/json", "{\"ok\":true,\"msg\":\"Firmware installed, restarting in 5 seconds...\"}");
+    
+    app_log("[WebOTA] Restarting device...");
+    
+    // Wait before restart to ensure response is sent
+    delay(5000);
+    ESP.restart();
 }
 
 // --- Ustawianie hosta ---
@@ -1082,7 +1290,10 @@ void webPanel_setup() {
         importConfig();
     });
 
-    webServer.on("/ota", HTTP_POST, handleOtaUpdate);
+    // OTA update with file upload handler
+    webServer.on("/ota", HTTP_POST, handleOtaUpdate, []() {
+        handleOtaUploadProgress();
+    });
 
     webServer.on("/test_mqtt", HTTP_POST, []() {
         webServer.send(200, "text/plain", "Test MQTT niezaimplementowany.");

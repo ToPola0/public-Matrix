@@ -33,6 +33,7 @@ CRGB clock_color = CRGB::Green;
 CRGB quote_color = CRGB::Cyan;
 CRGB animation_color = CRGB::Magenta;
 static bool displayNegativeEnabled = false;
+static bool displayMatrixRotate180Enabled = false;
 
 static int8_t digitOffset[8] = {0};  // Unused placeholder
 static uint16_t funClockIntervalSeconds = 10;
@@ -1021,11 +1022,22 @@ void display_setNegative(bool enabled) {
     displayNegativeEnabled = enabled;
 }
 
+void display_setMatrixRotate180(bool enabled) {
+    displayMatrixRotate180Enabled = enabled;
+    displayForceRefresh = true;
+}
+
+bool display_getMatrixRotate180() {
+    return displayMatrixRotate180Enabled;
+}
+
 uint16_t XY(uint8_t x, uint8_t y) {
     if (x >= LED_WIDTH || y >= LED_HEIGHT) return NUM_LEDS;
 
-    uint8_t mappedX = MATRIX_FLIP_X ? (LED_WIDTH - 1 - x) : x;
-    uint8_t mappedY = MATRIX_FLIP_Y ? (LED_HEIGHT - 1 - y) : y;
+    const bool flipX = ((MATRIX_FLIP_X != 0) ^ displayMatrixRotate180Enabled);
+    const bool flipY = ((MATRIX_FLIP_Y != 0) ^ displayMatrixRotate180Enabled);
+    uint8_t mappedX = flipX ? (LED_WIDTH - 1 - x) : x;
+    uint8_t mappedY = flipY ? (LED_HEIGHT - 1 - y) : y;
 
 #if MATRIX_COLUMN_MAJOR
 #if MATRIX_SERPENTINE

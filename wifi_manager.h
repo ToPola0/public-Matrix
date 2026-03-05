@@ -84,6 +84,7 @@ private:
     void handleApiQuotesConfig();
     void handleApiAnimationsConfig();
     void handleApiOtaStatus();
+    void handleApiOtaSwitchSlot();
     void handleClearLogs();
     void handleLogout();
     void handleOtaUpload();

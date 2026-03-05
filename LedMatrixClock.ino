@@ -13,6 +13,8 @@
 #include "scheduler.h"
 #include "mqtt_manager.h"
 #include "app_logger.h"
+#include "ota_manager.h"
+#include "github_ota_manager.h"
 
 // === FACTORY RESET FLAG ===
 // Set to true to perform factory reset on next boot (clears all Preferences and LittleFS)
@@ -35,10 +37,7 @@ WebServer webServer(80);
 
 WifiManager wifiManager;
 
-static bool otaInitialized = false;
-static bool otaUploadActive = false;
-
-static void drawArduinoOtaProgress(unsigned int progress, unsigned int total, bool errorState = false, bool forceRedraw = false) {
+static void drawOtaProgress(uint32_t progress, uint32_t total, bool errorState = false, bool forceRedraw = false) {
     static int16_t lastPercentShown = -1;
     static bool lastErrorState = false;
 
@@ -76,61 +75,45 @@ static void drawArduinoOtaProgress(unsigned int progress, unsigned int total, bo
     updateLEDs();
 }
 
-static void otaBeginIfNeeded() {
-    if (otaInitialized) return;
-    if (!wifiManager.isConnected()) return;
+// OTA Progress callback for manager
+static void otaProgressCallback(uint32_t progress, uint32_t total) {
+    drawOtaProgress(progress, total, false, false);
+}
 
-    ArduinoOTA.setHostname(OTA_HOSTNAME);
-    ArduinoOTA.setPort(OTA_PORT);
-    ArduinoOTA.setTimeout(120000);
-    if (strlen(OTA_PASSWORD) > 0) {
-        ArduinoOTA.setPassword(OTA_PASSWORD);
+// OTA Status callback for manager
+static void otaStatusCallback(OTA_Status status) {
+    switch(status) {
+        case OTA_STATUS_DOWNLOADING:
+            app_log("[OTA] Starting download...");
+            wifiManager.setExternalOtaActive(true);
+            message_active = false;
+            display_suppressFunClockEffects(300000);
+            display_setNegative(false);
+            WiFi.setSleep(false);
+            FastLED.setDither(0);
+            drawOtaProgress(0, 100, false, true);
+            break;
+        case OTA_STATUS_WRITING:
+            drawOtaProgress(0, 100, false, false);
+            break;
+        case OTA_STATUS_SUCCESS:
+            drawOtaProgress(100, 100, false, true);
+            app_log("[OTA] Update successful, device restarting");
+            break;
+        case OTA_STATUS_ERROR_WRITE:
+        case OTA_STATUS_ERROR_VALIDATION:
+        case OTA_STATUS_ERROR_BOOT:
+            drawOtaProgress(0, 1, true, true);
+            wifiManager.setExternalOtaActive(false);
+            FastLED.setDither(1);
+            app_logf("[OTA] Update failed with error code: %u", otaManager.getLastError());
+            break;
+        case OTA_STATUS_ROLLED_BACK:
+            app_log("[OTA] Automatic rollback to previous firmware");
+            break;
+        default:
+            break;
     }
-
-    ArduinoOTA.onStart([]() {
-        otaUploadActive = true;
-        wifiManager.setExternalOtaActive(true);
-        message_active = false;
-        display_suppressFunClockEffects(180000);
-        display_setNegative(false);
-        WiFi.setSleep(false);
-        FastLED.setDither(0);
-        drawArduinoOtaProgress(0, 100, false, true);
-        Serial.println("[OTA] Start");
-    });
-
-    ArduinoOTA.onEnd([]() {
-        drawArduinoOtaProgress(100, 100, false, true);
-        otaUploadActive = false;
-        wifiManager.setExternalOtaActive(false);
-        FastLED.setDither(1);
-        Serial.println("\n[OTA] End");
-    });
-
-    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-        static uint8_t lastPercent = 255;
-        uint8_t percent = (uint8_t)((progress * 100U) / total);
-        drawArduinoOtaProgress(progress, total);
-        if (percent != lastPercent && (percent % 10 == 0 || percent == 99)) {
-            Serial.printf("[OTA] Progress: %u%%\n", percent);
-            lastPercent = percent;
-        }
-    });
-
-    ArduinoOTA.onError([](ota_error_t error) {
-        otaUploadActive = false;
-        wifiManager.setExternalOtaActive(false);
-        FastLED.setDither(1);
-        drawArduinoOtaProgress(0, 1, true, true);
-        Serial.printf("[OTA] Error[%u]\n", (unsigned)error);
-    });
-
-    ArduinoOTA.begin();
-    otaInitialized = true;
-    Serial.print("[OTA] Ready: ");
-    Serial.print(OTA_HOSTNAME);
-    Serial.print(" @ ");
-    Serial.println(WiFi.localIP());
 }
 
 #if LED_TESTER_MODE
@@ -188,6 +171,7 @@ static void run_led_tester() {
 
 void setup() {
     Serial.begin(115200);
+    otaManager.handleBootGuardOnStartup();
     
     // === FACTORY RESET PROCEDURE ===
     #if FACTORY_RESET_ON_BOOT
@@ -239,7 +223,21 @@ void setup() {
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
     wifiManager.begin(&webServer);
-    otaBeginIfNeeded();
+    
+    // Initialize A/B OTA System
+    otaManager.setProgressCallback(otaProgressCallback);
+    otaManager.setStatusCallback(otaStatusCallback);
+    githubOtaManager.setProgressCallback(otaProgressCallback);
+    githubOtaManager.setStatusCallback(otaStatusCallback);
+    githubOtaManager.begin(
+        GITHUB_OTA_ENABLED == 1,
+        FIRMWARE_VERSION,
+        GITHUB_OTA_VERSION_URL,
+        GITHUB_OTA_FIRMWARE_URL,
+        GITHUB_OTA_CHECK_INTERVAL_MS,
+        GITHUB_OTA_BOOT_DELAY_MS);
+    app_log("[SETUP] OTA System initialized - A/B partitions configured");
+    
     effects_init();
     clock_init();
     quotes_init();
@@ -255,6 +253,8 @@ static uint32_t loopCount = 0;
 void loop() {
     loopStartMs = millis();
     loopCount++;
+
+    otaManager.processBootGuard();
     
 #if LED_TESTER_MODE
     run_led_tester();
@@ -268,11 +268,17 @@ void loop() {
     return;
 #endif
 
-    otaBeginIfNeeded();
-    if (otaInitialized) {
-        ArduinoOTA.handle();
+    // Handle WiFi-based OTA (A/B partitions, 100% safe)
+    if (wifiManager.isConnected()) {
+        otaManager.begin(OTA_HOSTNAME, OTA_PORT, OTA_PASSWORD);
+        otaManager.handle();
+        githubOtaManager.loop(
+            true,
+            otaManager.isInProgress() || wifiManager.isOtaUpdating());
     }
-    if (otaUploadActive) {
+    
+    // If OTA is in progress, block everything else
+    if (otaManager.isInProgress() || githubOtaManager.isInProgress()) {
         delay(1);
         return;
     }

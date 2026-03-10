@@ -230,7 +230,7 @@ void setup() {
     githubOtaManager.setProgressCallback(otaProgressCallback);
     githubOtaManager.setStatusCallback(otaStatusCallback);
     githubOtaManager.begin(
-        GITHUB_OTA_ENABLED == 1,
+        true,
         FIRMWARE_VERSION,
         GITHUB_OTA_VERSION_URL,
         GITHUB_OTA_FIRMWARE_URL,

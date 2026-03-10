@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include <ESPmDNS.h>
 #include "clock.h"
 #include "display.h"
 #include "effects.h"
@@ -11,6 +12,8 @@
 #include "mqtt_manager.h"
 #include "app_logger.h"
 #include "ota_manager.h"
+#include "github_ota_manager.h"
+#include "instrukcja.h"
 #include <ArduinoJson.h>
 #include <stdlib.h>
 #include <esp_ota_ops.h>
@@ -461,8 +464,15 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 .logs-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .ota-progress{height:14px;border:1px solid #2c3a4a;border-radius:999px;background:#0b121b;overflow:hidden;margin:8px 0}
 .ota-progress>div{height:100%;width:0%;background:linear-gradient(90deg,#2f78c4,#4ea3ff);transition:width .2s}
+.ota-progress.indeterminate>div{width:35% !important;animation:otaInd 1.1s linear infinite}
+@keyframes otaInd{0%{transform:translateX(-120%)}100%{transform:translateX(360%)}}
 .ota-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .ota-row button{flex:1 1 140px}
+.ot{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px}
+.otb{background:#2a2a2a;border:1px solid #444;color:#eee;padding:8px 10px;border-radius:8px;cursor:pointer;flex:1 1 120px}
+.otb.a{background:#1976d2;border-color:#1976d2;color:#fff}
+.otc{display:none}
+.otc.a{display:block}
 @media (max-width:480px){
     body{padding:7px}
     h1{font-size:1.05em}
@@ -486,10 +496,8 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button class='tb' onclick='showTab(4)'>Cytaty</button>
 <button class='tb' onclick='showTab(5)'>Urodziny</button>
 <button class='tb' onclick='showTab(6)'>Plan</button>
-<button class='tb' onclick='showTab(7)'>MQTT</button>
-<button class='tb' onclick='showTab(8)'>WiFi</button>
-<button class='tb' onclick='showTab(9)'>OTA</button>
-<button class='tb' onclick='showTab(10)' style='display:none'>Logi</button>
+<button class='tb' onclick='showTab(7)'>Inne</button>
+<button class='tb' onclick='showTab(8)' style='display:none'>Logi</button>
 </div>
 
 <!-- TAB 0: INFO -->
@@ -507,7 +515,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <div class='i'><strong>OTA:</strong> <span id='sys-ota' class='pill'>--</span></div>
 <div class='i'><strong>RAM:</strong> <span id='sys-ram' class='pill'>--</span></div>
 </div>
-<button type='button' onclick='showTab(10)'>Logi</button>
+<button type='button' onclick='showTab(8)'>Logi</button>
 <button onclick='location.reload()'>Refresh</button>
 <button class='d' onclick='restartDevice()'>Restart urządzenia</button>
 <button onclick='logoutPanel()'>Wyloguj</button>
@@ -529,7 +537,7 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <option value='8'>UTC+8</option>
 <option value='9'>UTC+9</option>
 </select>
-<div class='i'><span id='time-display' style='font-size:1.1em'>--:--</span></div>
+<div style='padding:7px 8px;margin:5px 0;text-align:center;min-height:180px;display:flex;align-items:center;justify-content:center'><span id='time-display' style='font-size:120px !important;font-weight:bold;line-height:1;font-family:monospace'>--:--</span></div>
 <div id='time-save-status' class='i' style='display:none;margin-top:4px'>✓ Zapisano ustawienia czasu</div>
 <button type='submit'>Zapisz</button>
 </form>
@@ -637,14 +645,23 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <!-- TAB 6: HARMONOGRAM -->
 <div class='tc'>
 <h2>Harmonogram jasności</h2>
-<div id='schedule-list' style='margin-bottom:4px'></div>
+<div id='schedule-list' style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px;margin-bottom:4px'></div>
 <button type='button' onclick='addScheduleItem()' style='background:#555;margin-bottom:4px'>Dodaj okno</button>
 <button type='button' onclick='saveSchedule()'>Zapisz</button>
 </div>
 
-<!-- TAB 7: MQTT -->
+<!-- TAB 7: INNE (MQTT + WiFi + OTA) -->
 <div class='tc'>
-<h2>MQTT (Home Assistant)</h2>
+<h2>Inne</h2>
+<div class='ot'>
+<button type='button' class='otb a' onclick='showOtherTab(0)'>MQTT</button>
+<button type='button' class='otb' onclick='showOtherTab(1)'>WiFi</button>
+<button type='button' class='otb' onclick='showOtherTab(2)'>OTA</button>
+<button type='button' class='otb' onclick='showOtherTab(3)'>Instrukcja</button>
+</div>
+
+<div class='otc a'>
+<h3>MQTT (Home Assistant)</h3>
 <form id='mqtt-form' onsubmit='return false'>
 <label><input type='checkbox' name='mqttEnabled' id='mqttEnabled' style='width:auto' onchange='saveMqttConfig()'> Włącz MQTT</label>
 <label>Host (IP/Nazwa)</label>
@@ -662,9 +679,8 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 </form>
 </div>
 
-<!-- TAB 8: WiFi -->
-<div class='tc'>
-<h2>WiFi</h2>
+<div class='otc'>
+<h3>WiFi</h3>
 <form method='POST' action='/save'>
 <label>SSID</label>
 <input type='text' name='ssid' id='ssid-input'>
@@ -687,28 +703,39 @@ button:hover{background:#2d3f52;border-color:#4b6077}
 <button class='d' onclick='if(confirm("Wykonać pełny reset ustawień WiFi?"))location.href="/resetwifi"'>Reset WiFi (całość)</button>
 </div>
 
-<!-- TAB 9: OTA -->
-<div class='tc'>
-<h2>OTA firmware update</h2>
+<div class='otc'>
+<h3>OTA firmware update</h3>
 <div class='i'><strong>Status:</strong> <span id='ota-status-text'>Gotowy</span></div>
 <div class='i'><strong>Wersja:</strong> <span id='ota-version-text'>--</span></div>
 <div class='i'><strong>Kompilacja:</strong> <span id='ota-build-text'>--</span></div>
 <div class='i'><strong>Rozmiar szkicu:</strong> <span id='ota-sketch-size'>--</span></div>
+<div class='i'><strong>Wersja zdalna:</strong> <span id='ota-github-remote'>--</span></div>
+<div class='i' id='ota-new-version-msg' style='display:none;color:#ff9800;font-weight:bold'>Jest nowa wersja, wkrótce będzie na twoim urządzeniu</div>
+<div class='i'><strong>Etap zdalnej OTA:</strong> <span id='ota-github-phase'>--</span></div>
+<div class='i'><strong>Błąd zdalnej OTA:</strong> <span id='ota-github-error'>--</span></div>
 <div class='i'><strong>Aktywny slot:</strong> <span id='ota-active-slot'>--</span></div>
 <div class='i'><strong>Następny slot:</strong> <span id='ota-next-slot'>--</span></div>
 <label>Plik firmware (.bin)</label>
 <input type='file' id='ota-file' accept='.bin'>
 <div class='ota-progress'><div id='ota-progress-bar'></div></div>
 <div class='i'><strong>Postęp:</strong> <span id='ota-progress-text'>0%</span></div>
+<div class='i'><strong>Transfer:</strong> <span id='ota-transfer-text'>0 B / ?</span></div>
 <div class='ota-row'>
 <button type='button' id='ota-upload-btn' onclick='startOtaUpload()'>Wyślij firmware</button>
 <button type='button' id='ota-switch-slot-btn' onclick='switchOtaSlot()'>Przełącz slot i restart</button>
+<button type='button' id='ota-test-btn' onclick='startGithubOtaCheck()' style='background:#ff9800;display:none'>🧪 TEST: Sprawdź aktual. GitHub</button>
 <button type='button' id='ota-refresh-btn' onclick='loadOtaStatus()'>Odśwież status</button>
 </div>
 <div class='i' style='font-size:.82em'>Po wysłaniu poprawnego pliku urządzenie zrestartuje się automatycznie.</div>
 </div>
 
-<!-- TAB 10: LOGI -->
+<div class='otc'>
+<h3>Instrukcja</h3>
+<div id='instrukcja-content' style='line-height:1.6;font-size:0.95em;color:#ddd'>Ładowanie instrukcji...</div>
+</div>
+</div>
+
+<!-- TAB 8: LOGI -->
 <div class='tc'>
 <h2>Logi</h2>
 <div class='logs-controls'>
@@ -738,6 +765,48 @@ let otaUploadActive=false;
 let otaUiProgress=0;
 let otaUiTargetProgress=0;
 let otaUiProgressTimer=null;
+let otherTabIndex=0;
+
+function formatBytes(v){
+const n=Number(v||0);
+if(n<1024)return `${n} B`;
+if(n<1024*1024)return `${(n/1024).toFixed(1)} KB`;
+return `${(n/(1024*1024)).toFixed(2)} MB`;
+}
+
+function otaSetIndeterminate(on){
+const wrap=document.querySelector('.ota-progress');
+if(!wrap)return;
+if(on){wrap.classList.add('indeterminate');}
+else{wrap.classList.remove('indeterminate');}
+}
+
+function showOtherTab(i){
+otherTabIndex=i;
+document.querySelectorAll('.otc').forEach(e=>e.classList.remove('a'));
+document.querySelectorAll('.otb').forEach(e=>e.classList.remove('a'));
+const panes=document.querySelectorAll('.otc');
+const btns=document.querySelectorAll('.otb');
+if(panes[i])panes[i].classList.add('a');
+if(btns[i])btns[i].classList.add('a');
+
+if(i===0){
+loadMqttConfig();
+stopOtaStatusPolling();
+}
+if(i===1){
+loadWifiConfig();
+stopOtaStatusPolling();
+}
+if(i===2){
+loadOtaStatus();
+startOtaStatusPolling();
+}
+if(i===3){
+stopOtaStatusPolling();
+loadInstrukcja();
+}
+}
 
 function showTab(i){
 document.querySelectorAll('.tc').forEach(e=>e.classList.remove('a'));
@@ -749,10 +818,8 @@ if(i===4)loadQuotes();
 if(i===5)loadBirthdays();
 if(i===6)loadSchedule();
 if(i===2)loadAnimationsConfig();
-if(i===7)loadMqttConfig();
-if(i===8)loadWifiConfig();
-if(i===9){loadOtaStatus();startOtaStatusPolling();}else{stopOtaStatusPolling();}
-if(i===10){loadLogsNow(true);startLogsPolling();}else{stopLogsPolling();}
+if(i===7){showOtherTab(otherTabIndex);}else{stopOtaStatusPolling();}
+if(i===8){loadLogsNow(true);startLogsPolling();}else{stopLogsPolling();}
 }
 
 function logsAppend(items,replaceAll=false){
@@ -799,7 +866,7 @@ logsPollTimer=setInterval(()=>{
 const autoEl=document.getElementById('logsAuto');
 if(autoEl && autoEl.checked===false)return;
 const tabIndex=[...document.querySelectorAll('.tc')].findIndex(e=>e.classList.contains('a'));
-if(tabIndex!==10)return;
+if(tabIndex!==8)return;
 loadLogsNow(false);
 },1000);
 }
@@ -832,6 +899,7 @@ showToast('❌ Błąd czyszczenia logów',false);
 }
 
 function otaSetProgress(percent){
+otaSetIndeterminate(false);
 otaUiTargetProgress=Math.max(0,Math.min(100,Number(percent||0)));
 if(!otaUiProgressTimer){
 otaUiProgressTimer=setInterval(()=>{
@@ -860,23 +928,81 @@ const statusEl=document.getElementById('ota-status-text');
 const versionEl=document.getElementById('ota-version-text');
 const buildEl=document.getElementById('ota-build-text');
 const sketchSizeEl=document.getElementById('ota-sketch-size');
+const githubRemoteEl=document.getElementById('ota-github-remote');
+const githubNewVersionMsgEl=document.getElementById('ota-new-version-msg');
+const githubPhaseEl=document.getElementById('ota-github-phase');
+const githubErrorEl=document.getElementById('ota-github-error');
 const activeSlotEl=document.getElementById('ota-active-slot');
 const nextSlotEl=document.getElementById('ota-next-slot');
+const transferEl=document.getElementById('ota-transfer-text');
+const uploadBtn=document.getElementById('ota-upload-btn');
+const testBtn=document.getElementById('ota-test-btn');
 if(statusEl)statusEl.textContent=d.status||'Gotowy';
 if(versionEl)versionEl.textContent=d.version||'--';
 if(buildEl)buildEl.textContent=(d.buildDate&&d.buildTime)?(d.buildDate+' '+d.buildTime):'--';
 if(sketchSizeEl)sketchSizeEl.textContent=(d.sketchSize!==undefined)?(String(d.sketchSize)+' B'):'--';
+if(githubRemoteEl)githubRemoteEl.textContent=d.githubRemoteVersion||'--';
+if(githubNewVersionMsgEl)githubNewVersionMsgEl.style.display=d.githubUpdateAvailable===true?'block':'none';
+if(githubPhaseEl)githubPhaseEl.textContent=d.githubPhaseText||'--';
+if(githubErrorEl)githubErrorEl.textContent=d.githubLastError||'brak';
 if(activeSlotEl)activeSlotEl.textContent=d.activeSlot||'--';
 if(nextSlotEl)nextSlotEl.textContent=d.nextSlot||'--';
 const total=Number(d.total||0);
 const written=Number(d.written||0);
+if(transferEl)transferEl.textContent=total>0?`${formatBytes(written)} / ${formatBytes(total)}`:`${formatBytes(written)} / ?`;
 let percent=0;
-if(total>0)percent=(written*100.0)/total;
-if(d.updating===true && total===0 && written===0){
-percent=1;
-}
+if(total>0){
+percent=(written*100.0)/total;
 otaSetProgress(percent);
+}else if(d.updating===true){
+otaSetIndeterminate(true);
+if(written===0){
+otaSetProgress(1);
+}
+}else{
+otaSetProgress(0);
+}
+if(uploadBtn)uploadBtn.disabled=(d.updating===true);
+if(testBtn)testBtn.style.display=d.githubTestButtonEnabled===true?'inline-block':'none';
 }).catch(e=>console.log('Error:',e));
+}
+
+// GitHub OTA Manual Check - Test button for triggering check
+function startGithubOtaCheck(){
+if(otaUploadActive){
+showToast('❌ OTA upload w toku',false);
+return;
+}
+const btn=document.querySelector('button[onclick*="startGithubOtaCheck"]');
+if(btn)btn.disabled=true;
+fetch('/api/github-ota-check',{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+showToast('✓ '+(d.message||'Sprawdzono aktualizację'),true);
+}else{
+showToast('❌ '+(d.error||'Sprawdzenie zdalnej OTA nieudane'),false);
+}
+loadOtaStatus();
+}).catch(e=>{console.log('Error:',e);showToast('❌ Błąd połączenia zdalnej OTA',false);})
+.finally(()=>{if(btn)btn.disabled=false;});
+}
+
+function startGithubOtaInstall(){
+if(otaUploadActive){
+showToast('❌ OTA upload w toku',false);
+return;
+}
+const btn=document.getElementById('ota-github-install-btn');
+if(btn)btn.disabled=true;
+fetch('/api/github-ota-install',{method:'POST'}).then(r=>r.json()).then(d=>{
+if(d.success){
+showToast('✓ '+(d.message||'Pobieranie i instalacja OTA...'),true);
+otaSetIndeterminate(true);
+}else{
+showToast('❌ '+(d.error||'Instalacja zdalnej OTA nieudana'),false);
+}
+loadOtaStatus();
+}).catch(e=>{console.log('Error:',e);showToast('❌ Błąd połączenia zdalnej OTA',false);})
+.finally(()=>{if(btn)btn.disabled=false;});
 }
 
 function switchOtaSlot(){
@@ -1270,23 +1396,19 @@ showToast('❌ '+(d.error||'Błąd testu'),false);
 }).catch(e=>{console.log('Error:',e);showToast('❌ Błąd połączenia',false)});
 }
 function loadSchedule(){
-fetch('/api/schedule').then(r=>r.json()).then(d=>{
+return fetch('/api/schedule?t=' + Date.now()).then(r=>r.json()).then(d=>{
 const l=document.getElementById('schedule-list');
 l.innerHTML='';
 const windows=Array.isArray(d.windows)?d.windows:[];
-if(windows.length===0){
-addScheduleItem();
-return;
-}
 windows.forEach(w=>addScheduleItem(w));
 }).catch(e=>console.log('Error:',e));
 }
 function addScheduleItem(existing){
 const l=document.getElementById('schedule-list');
-const id=Date.now();
+const id=Date.now()+'_'+Math.random().toString(36).substr(2,9);
 const item=document.createElement('div');item.id='sch-'+id;
-item.style.cssText='background:#111;padding:4px;margin:2px 0;border-left:2px solid #666';
-item.innerHTML=`<label><input type='checkbox' class='sch-e' checked style='width:auto'> Aktywne</label><label>Od</label><input type='time' class='sch-start' value='07:00'><label>Do</label><input type='time' class='sch-end' value='22:00'><label>Jasność: <span class='sch-bv'>120</span></label><input type='range' class='sch-b' min='1' max='255' value='120'><label>Kolor</label><input type='color' class='sch-c' value='#00ff00' style='height:34px'><button type='button' onclick='document.getElementById("sch-${id}").remove()' style='width:auto;padding:2px 6px;background:#600'>Usuń</button>`;
+item.style.cssText='background:#111;padding:6px;margin:2px;border-left:2px solid #666;border-radius:4px';
+item.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'><label style='font-size:0.9em;margin:0'><input type='checkbox' class='sch-e' checked style='width:auto'> Aktywne</label><div style='display:flex;gap:4px;align-items:center'><input type='color' class='sch-c' value='#00ff00' style='width:40px;height:40px;border:none;padding:0;cursor:pointer;flex-shrink:0'><button type='button' onclick='document.getElementById("sch-${id}").remove()' style='width:24px;height:24px;padding:0;background:#600;border:none;color:#fff;cursor:pointer;border-radius:3px;font-size:0.8em'>X</button></div></div><div style='display:flex;gap:4px;margin-bottom:4px'><div style='flex:1'><label style='font-size:0.75em;display:block'>Od</label><input type='time' class='sch-start' value='07:00' style='width:100%;font-size:0.75em;padding:3px'></div><div style='flex:1'><label style='font-size:0.75em;display:block'>Do</label><input type='time' class='sch-end' value='22:00' style='width:100%;font-size:0.75em;padding:3px'></div></div><div style='margin-bottom:4px'><label style='font-size:0.75em;display:block'>Jasność: <span class='sch-bv'>120</span></label><input type='range' class='sch-b' min='1' max='255' value='120' style='width:100%;height:18px'></div>`;
 if(existing){
 item.querySelector('.sch-e').checked=(existing.enabled===1||existing.enabled===true);
 item.querySelector('.sch-start').value=existing.start||'07:00';
@@ -1310,11 +1432,16 @@ end:item.querySelector('.sch-end').value||'00:00',
 brightness:parseInt(item.querySelector('.sch-b').value)||120,
 color:item.querySelector('.sch-c').value||'#00ff00'
 }));
-const fd=new FormData();
-fd.append('schedule-data',JSON.stringify(windows));
-fetch('/save-schedule',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+console.log('Saving schedule, items count:', windows.length);
+console.log('Schedule data:', JSON.stringify(windows));
+fetch('/save-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(windows)}).then(r=>{
+console.log('Response status:', r.status);
+return r.json();
+}).then(d=>{
+console.log('Response data:', d);
 if(d.success){
 showToast('✓ Harmonogram jasności zapisany',true);
+return loadSchedule();
 }else{
 showToast('❌ '+(d.error||'Błąd zapisu'),false);
 }
@@ -1447,6 +1574,17 @@ showToast('✓ Zapisano ustawienia MQTT',true);
 showToast('❌ '+(d.error||'Błąd MQTT'),false);
 }
 }).catch(e=>console.log('Error:',e));
+}
+
+function loadInstrukcja(){
+const el=document.getElementById('instrukcja-content');
+if(!el)return;
+fetch('/api/instrukcja').then(r=>r.text()).then(html=>{
+el.innerHTML=html;
+}).catch(e=>{
+el.innerHTML='<p style="color:#f00">Błąd ładowania instrukcji</p>';
+console.log('Error loading instrukcja:',e);
+});
 }
 
 // === ANIMACJE ===
@@ -1715,6 +1853,9 @@ void WifiManager::begin(WebServer* webServer) {
     // Najpierw ustawić WiFi mode - przed WebServer
     Serial.println("[WiFi] Inicjowanie AP + STA mode");
     WiFi.mode(WIFI_AP_STA);
+    WiFi.setHostname("LedMatrixClock");  // Set hostname immediately after mode
+    Serial.print("[WiFi] Hostname set to: ");
+    Serial.println(WiFi.getHostname());
     yield();
     delay(200);
     
@@ -1748,6 +1889,7 @@ void WifiManager::loop() {
     static bool staWasConnected = false;
     static bool ipShownEver = false;
     static uint32_t staConnectedSinceMs = 0;
+    static bool mdnsBegan = false;
 
     if (server) {
         server->handleClient();
@@ -1765,6 +1907,14 @@ void WifiManager::loop() {
     if (staConnected) {
         if (!staWasConnected) {
             staConnectedSinceMs = nowMs;
+            
+            // Initialize mDNS on first connection
+            if (!mdnsBegan) {
+                MDNS.begin("LedMatrixClock");
+                mdnsBegan = true;
+                Serial.println("[WiFi] mDNS started: LedMatrixClock.local");
+            }
+            
             app_logf("WIFI connected: ssid=%s ip=%s rssi=%d",
                      config.ssid.c_str(),
                      WiFi.localIP().toString().c_str(),
@@ -1878,7 +2028,7 @@ void WifiManager::setupAP() {
 void WifiManager::setupStation() {
     Serial.println("[WiFi] Konfiguracja Stacji (Station)");
     // Mode już ustawiony na WIFI_AP_STA w begin()
-    WiFi.setHostname("LedMatrixClock");
+    // Hostname już ustawiony w begin() - nie powtarzamy
     Serial.print("[WiFi] Nazwa hosta: ");
     Serial.println(WiFi.getHostname());
     WiFi.begin(config.ssid.c_str(), config.password.c_str());
@@ -1888,6 +2038,7 @@ void WifiManager::setupStation() {
 }
 
 void WifiManager::setupWebServer(WebServer* webServer) {
+    Serial.println("[WiFi] setupWebServer() called");
     server = webServer;
     const char* headerKeys[] = {"X-Firmware-Size", "Content-Length"};
     server->collectHeaders(headerKeys, 2);
@@ -1904,7 +2055,14 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/logout", [this]() { handleLogout(); });
     server->on("/save-time", HTTP_POST, authWrap(&WifiManager::handleSaveTime));
     server->on("/save-animations", HTTP_POST, authWrap(&WifiManager::handleSaveAnimations));
+    Serial.println("[WiFi] Registering /save-schedule endpoint");
     server->on("/save-schedule", HTTP_POST, authWrap(&WifiManager::handleSaveSchedule));
+    server->on("/clear-schedule", HTTP_POST, authWrap(&WifiManager::handleClearSchedule));
+    Serial.println("[WiFi] /save-schedule registered");
+    server->on("/debug-schedule", [this]() { 
+        Serial.println("[DEBUG] /debug-schedule endpoint called!");
+        server->send(200, "text/plain", "Debug schedule endpoint works");
+    });
     server->on("/resetwifi", authWrap(&WifiManager::handleResetWifi));
     server->on("/forget-wifi", HTTP_POST, authWrap(&WifiManager::handleForgetWifi));
     server->on("/restart", authWrap(&WifiManager::handleRestart));
@@ -1954,6 +2112,9 @@ void WifiManager::setupWebServer(WebServer* webServer) {
     server->on("/save-quotes-enabled", HTTP_POST, authWrap(&WifiManager::handleSaveQuotesEnabled));
     server->on("/api/quotes-config", authWrap(&WifiManager::handleApiQuotesConfig));
     server->on("/api/ota-status", authWrap(&WifiManager::handleApiOtaStatus));
+    server->on("/api/instrukcja", authWrap(&WifiManager::handleApiInstrukcja));
+    server->on("/api/github-ota-check", HTTP_POST, authWrap(&WifiManager::handleApiGithubOtaCheck));
+    server->on("/api/github-ota-install", HTTP_POST, authWrap(&WifiManager::handleApiGithubOtaInstall));
     server->on("/api/ota-switch-slot", HTTP_POST, authWrap(&WifiManager::handleApiOtaSwitchSlot));
     server->on("/api/colors-palette", authWrap(&WifiManager::handleApiColorsPalette));
     server->on("/ota-upload", HTTP_POST, [this]() {
@@ -2256,7 +2417,7 @@ void WifiManager::handleApiStatus() {
     json += "\"flashTotalBytes\":" + String(sketchTotal) + ",";
     json += "\"flashChipUsedPercent\":" + String(flashChipUsedPercent) + ",";
     json += "\"flashChipBytes\":" + String(flashChipSize) + ",";
-    json += "\"firmware\":\"1.0.0\",";
+    json += "\"firmware\":\"" + String(FIRMWARE_VERSION) + "\",";
     json += "\"mqtt\":\"" + mqtt_manager_getStatus() + "\",";
     json += "\"ntp\":\"OK\",";
     json += "\"ota\":" + String(isOtaUpdating() ? "true" : "false") + ",";
@@ -3083,16 +3244,34 @@ void WifiManager::handleSaveLampConfig() {
 }
 
 void WifiManager::handleSaveSchedule() {
-    if (!server->hasArg("schedule-data")) {
-        server->send(400, "application/json", "{\"success\":false,\"error\":\"Missing schedule-data\"}");
+    if (!ensureAuthenticated()) return;
+    
+    Serial.println("[WiFi] handleSaveSchedule() called");
+    
+    if (server->method() != HTTP_POST) {
+        Serial.println("[WiFi] ERROR: Not HTTP_POST");
+        server->send(405, "application/json", "{\"success\":false,\"error\":\"Method not allowed\"}");
         return;
     }
 
-    String scheduleJSON = server->arg("schedule-data");
+    String scheduleJSON = server->arg("plain");
+    Serial.print("[WiFi] Received schedule JSON length: ");
+    Serial.println(scheduleJSON.length());
+    
+    if (scheduleJSON.length() == 0) {
+        Serial.println("[WiFi] ERROR: Empty body");
+        server->send(400, "application/json", "{\"success\":false,\"error\":\"Empty body\"}");
+        return;
+    }
+
+    Serial.print("[WiFi] Schedule JSON: ");
+    Serial.println(scheduleJSON);
 
     DynamicJsonDocument doc(4096);
     DeserializationError err = deserializeJson(doc, scheduleJSON);
     if (err || !doc.is<JsonArray>()) {
+        Serial.print("[WiFi] JSON parse error: ");
+        Serial.println(err.c_str());
         server->send(400, "application/json", "{\"success\":false,\"error\":\"Invalid JSON array\"}");
         return;
     }
@@ -3126,21 +3305,53 @@ void WifiManager::handleSaveSchedule() {
 
     String sanitized;
     serializeJson(out, sanitized);
-    preferences.putString("brightnessSchedule", sanitized.c_str());
-    preferences.putString("schedule", "[]");
+    
+    app_logf("[SCHEDULE] Serialized data length: %d", sanitized.length());
+    app_logf("[SCHEDULE] Serialized data: %s", sanitized.c_str());
+    
+    // Write to separate "schedule" namespace to avoid conflicts with global "wifi" namespace
+    Preferences prefs;
+    prefs.begin("schedule", false);
+    app_logf("[SCHEDULE] Writing to 'schedule' namespace...");
+    size_t written = prefs.putString("windows", sanitized.c_str());
+    app_logf("[SCHEDULE] putString returned: %d bytes", written);
+    prefs.end();
+    app_logf("[SCHEDULE] Schedule namespace closed");
 
     Serial.print("[WiFi] Harmonogram jasności zapisany. Rozmiar: ");
     Serial.print(sanitized.length());
     Serial.println(" bajtów");
-    Serial.print("[WiFi] Brightness windows: ");
-    Serial.println(sanitized.c_str());
 
     server->send(200, "application/json", "{\"success\":true,\"windows\":" + String(out.size()) + "}");
 }
 
+// Clear entire schedule
+void WifiManager::handleClearSchedule() {
+    Serial.println("[WiFi] handleClearSchedule() called");
+    
+    // Remove from separate "schedule" namespace
+    app_logf("[SCHEDULE] Clearing entire schedule...");
+    Preferences prefs;
+    prefs.begin("schedule", false);
+    prefs.remove("windows");
+    prefs.end();
+    
+    app_logf("[SCHEDULE] Schedule cleared from 'schedule' namespace");
+    Serial.println("[WiFi] handleClearSchedule() completed");
+    
+    server->send(200, "application/json", "{\"success\":true}");
+}
+
 // New API endpoint to retrieve saved schedule
 void WifiManager::handleApiSchedule() {
-    String windowsJSON = preferences.getString("brightnessSchedule", "[]");
+    // Read from separate "schedule" namespace
+    Preferences fresh;
+    fresh.begin("schedule", true);  // read-only
+    String windowsJSON = fresh.getString("windows", "[]");
+    fresh.end();
+    
+    app_logf("[SCHEDULE] API read from 'schedule' namespace: %s", windowsJSON.c_str());
+    
     String response = "{\"windows\":" + windowsJSON + "}";
     server->send(200, "application/json", response);
 }
@@ -3241,26 +3452,130 @@ void WifiManager::handleSaveQuotesEnabled() {
 
 // OTA Status endpoint
 void WifiManager::handleApiOtaStatus() {
-    const esp_partition_t* bootPartition = esp_ota_get_boot_partition();
-    const esp_partition_t* nextPartition = esp_ota_get_next_update_partition(bootPartition);
-    const char* bootLabel = (bootPartition && bootPartition->label) ? bootPartition->label : "unknown";
+    // Always check for new remote version immediately when panel is loaded/refreshed
+    githubOtaManager.checkNow();
+    
+    const esp_partition_t* runningPartition = esp_ota_get_running_partition();
+    const esp_partition_t* nextPartition = esp_ota_get_next_update_partition(runningPartition);
+    const char* bootLabel = (runningPartition && runningPartition->label) ? runningPartition->label : "unknown";
     const char* nextLabel = (nextPartition && nextPartition->label) ? nextPartition->label : "unknown";
 
+    bool githubUpdating = githubOtaManager.isInProgress();
+    bool anyUpdating = otaUpdating || githubUpdating;
+    uint32_t writtenBytes = otaUpdating
+        ? (uint32_t)otaProgress
+        : (githubUpdating ? githubOtaManager.getWrittenBytes() : (uint32_t)otaProgress);
+    uint32_t totalBytes = otaUpdating
+        ? (uint32_t)otaTotal
+        : (githubUpdating ? githubOtaManager.getTotalBytes() : (uint32_t)otaTotal);
+
     String json = "{";
-    json += "\"version\":\"1.0.0\",";
+    json += "\"version\":\"" + String(FIRMWARE_VERSION) + "\",";
     json += "\"buildDate\":\"" + String(__DATE__) + "\",";
     json += "\"buildTime\":\"" + String(__TIME__) + "\",";
     json += "\"sketchSize\":" + String((unsigned long)ESP.getSketchSize()) + ",";
+    json += "\"githubBuildEnabled\":" + String(githubOtaManager.isEnabled() ? "true" : "false") + ",";
+    json += "\"githubEnabled\":" + String(githubOtaManager.isEnabled() ? "true" : "false") + ",";
+    json += "\"githubConfigured\":" + String(githubOtaManager.isConfigured() ? "true" : "false") + ",";
+    json += "\"githubTestButtonEnabled\":" + String(GITHUB_OTA_TEST_BUTTON ? "true" : "false") + ",";
+    json += "\"githubCurrentVersion\":\"" + githubOtaManager.getCurrentVersion() + "\",";
+    json += "\"githubRemoteVersion\":\"" + githubOtaManager.getRemoteVersion() + "\",";
+    json += "\"githubUpdateAvailable\":" + String(githubOtaManager.isUpdateAvailable() ? "true" : "false") + ",";
+    uint8_t ghPhase = githubOtaManager.getPhase();
+    String ghPhaseText = "idle";
+    if (ghPhase == 1) ghPhaseText = "laczenie";
+    else if (ghPhase == 2) ghPhaseText = "pobieranie";
+    else if (ghPhase == 3) ghPhaseText = "zapis flash";
+    else if (ghPhase == 4) ghPhaseText = "walidacja";
+    else if (ghPhase == 5) ghPhaseText = "zakonczono";
+    else if (ghPhase == 6) ghPhaseText = "blad";
+    json += "\"githubPhase\":" + String((unsigned long)ghPhase) + ",";
+    json += "\"githubPhaseText\":\"" + ghPhaseText + "\",";
+    json += "\"githubLastError\":\"" + githubOtaManager.getLastError() + "\",";
+    json += "\"githubLastCheckMs\":" + String((unsigned long)githubOtaManager.getLastCheckMs()) + ",";
+    json += "\"githubCheckIntervalMs\":" + String((unsigned long)githubOtaManager.getCheckIntervalMs()) + ",";
     json += "\"status\":\"";
-    json += otaUpdating ? "Aktualizacja" : "Gotowy";
+    if (otaUpdating) {
+        json += "Aktualizacja WWW";
+    } else if (githubUpdating) {
+        json += "Aktualizacja zdalna";
+    } else {
+        json += "Gotowy";
+    }
     json += "\",";
-    json += "\"updating\":" + String(otaUpdating ? "true" : "false") + ",";
-    json += "\"written\":" + String((unsigned long)otaProgress) + ",";
-    json += "\"total\":" + String((unsigned long)otaTotal) + ",";
+    json += "\"updating\":" + String(anyUpdating ? "true" : "false") + ",";
+    json += "\"written\":" + String((unsigned long)writtenBytes) + ",";
+    json += "\"total\":" + String((unsigned long)totalBytes) + ",";
     json += "\"activeSlot\":\"" + String(bootLabel) + "\",";
     json += "\"nextSlot\":\"" + String(nextLabel) + "\"";
     json += "}";
     server->send(200, "application/json", json);
+}
+
+void WifiManager::handleApiInstrukcja() {
+    String html = getInstrukcjaHtml();
+    server->send(200, "text/html; charset=UTF-8", html);
+}
+
+void WifiManager::handleApiGithubOtaCheck() {
+    if (otaUpdating || externalOtaActive || otaManager.isInProgress() || githubOtaManager.isInProgress()) {
+        server->send(409, "application/json", "{\"success\":false,\"error\":\"Inny OTA jest w toku\"}");
+        return;
+    }
+    if (!isConnected()) {
+        server->send(409, "application/json", "{\"success\":false,\"error\":\"Brak polaczenia WiFi\"}");
+        return;
+    }
+    if (!githubOtaManager.isEnabled()) {
+        server->send(400, "application/json", "{\"success\":false,\"error\":\"Zdalna OTA jest wylaczona w config.h\"}");
+        return;
+    }
+    if (!githubOtaManager.isConfigured()) {
+        server->send(400, "application/json", "{\"success\":false,\"error\":\"Brak konfiguracji URL zdalnej OTA\"}");
+        return;
+    }
+
+    app_log("[RemoteOTA] Manual check requested from WWW");
+    bool ok = githubOtaManager.checkNow();
+    if (ok) {
+        String msg = githubOtaManager.isUpdateAvailable()
+            ? "Nowa wersja jest dostępna"
+            : "Brak nowej wersji";
+        server->send(200, "application/json", "{\"success\":true,\"message\":\"" + msg + "\"}");
+    } else {
+        String err = githubOtaManager.getLastError();
+        if (err.length() == 0) err = "Sprawdzenie nieudane";
+        server->send(500, "application/json", "{\"success\":false,\"error\":\"" + err + "\"}");
+    }
+}
+
+void WifiManager::handleApiGithubOtaInstall() {
+    if (otaUpdating || externalOtaActive || otaManager.isInProgress() || githubOtaManager.isInProgress()) {
+        server->send(409, "application/json", "{\"success\":false,\"error\":\"Inny OTA jest w toku\"}");
+        return;
+    }
+    if (!isConnected()) {
+        server->send(409, "application/json", "{\"success\":false,\"error\":\"Brak polaczenia WiFi\"}");
+        return;
+    }
+    if (!githubOtaManager.isEnabled()) {
+        server->send(400, "application/json", "{\"success\":false,\"error\":\"Zdalna OTA jest wylaczona w config.h\"}");
+        return;
+    }
+    if (!githubOtaManager.isConfigured()) {
+        server->send(400, "application/json", "{\"success\":false,\"error\":\"Brak konfiguracji URL zdalnej OTA\"}");
+        return;
+    }
+
+    app_log("[RemoteOTA] Manual install requested from WWW");
+    bool ok = githubOtaManager.startInstallAsync();
+    if (ok) {
+        server->send(200, "application/json", "{\"success\":true,\"message\":\"Rozpoczeto pobieranie i instalacje\"}");
+    } else {
+        String err = githubOtaManager.getLastError();
+        if (err.length() == 0) err = "Instalacja nieudana";
+        server->send(500, "application/json", "{\"success\":false,\"error\":\"" + err + "\"}");
+    }
 }
 
 void WifiManager::handleApiOtaSwitchSlot() {

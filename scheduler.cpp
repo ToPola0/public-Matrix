@@ -198,12 +198,16 @@ static void applyBrightnessWindowsIfNeeded() {
     lastAppliedMinuteOfDay = (int16_t)nowMinuteOfDay;
 
     Preferences prefs;
+    prefs.begin("schedule", true);  // Read from new "schedule" namespace
+    String windowsJSON = prefs.getString("windows", "[]");
+    prefs.end();
+    
+    // Get default brightness/color from wifi settings
     prefs.begin("wifi", true);
-    String windowsJSON = prefs.getString("brightnessSchedule", "[]");
     int defaultBrightness = constrain(prefs.getString("animBrightness", "200").toInt(), 1, 255);
     String defaultColorStr = prefs.getString("animColor", "#00ff00");
     prefs.end();
-
+    
     int targetBrightness = defaultBrightness;
     CRGB defaultColor = globalColor;
     if (!parseHexColorForSchedule(defaultColorStr.c_str(), defaultColor)) {

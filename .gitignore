@@ -16,3 +16,7 @@ sdkconfig
 # Logs
 *.log
 *.exit
+
+# Temporary files
+.compile_status.txt
+.tmp-public-only-bin/

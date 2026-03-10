@@ -38,6 +38,7 @@ private:
     void handleSaveTime();
     void handleSaveAnimations();
     void handleSaveSchedule();
+    void handleClearSchedule();
     void handleResetWifi();
     void handleForgetWifi();
     void handleRestart();
@@ -84,6 +85,9 @@ private:
     void handleApiQuotesConfig();
     void handleApiAnimationsConfig();
     void handleApiOtaStatus();
+    void handleApiInstrukcja();
+    void handleApiGithubOtaCheck();
+    void handleApiGithubOtaInstall();
     void handleApiOtaSwitchSlot();
     void handleClearLogs();
     void handleLogout();

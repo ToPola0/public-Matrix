@@ -1183,7 +1183,8 @@ void handleOtaUpdate() {
 // --- Ustawianie hosta ---
 void webPanel_setHostname(const char* hostname) {
     WiFi.setHostname(hostname);
-    MDNS.begin(hostname);
+    // mDNS initialization moved to wifi_manager.cpp for better timing
+    // MDNS.begin(hostname) - called from WifiManager::loop() on first connection
 }
 
 // --- Obsługa żądań HTTP ---
